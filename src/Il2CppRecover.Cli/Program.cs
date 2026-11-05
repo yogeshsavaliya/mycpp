@@ -143,7 +143,7 @@ public static class Program
         {
             RequestedAbi = abi,
             SuppliedUnityVersion = unity
-        }, new Progress<ProgressEvent>(e => Console.Error.WriteLine(e.Stage + (e.Detail is null ? "" : ": " + e.Detail))), CancellationToken.None);
+        }, new Progress<ProgressEvent>(e => Console.Error.WriteLine(FormatProgress(e))), CancellationToken.None);
         Console.WriteLine(JsonDefaults.Serialize(new
         {
             result.Inventory.Succeeded,
@@ -157,6 +157,16 @@ public static class Program
             output = result.OutputDirectory
         }));
         return result.Inventory.Succeeded ? 0 : WorkerHost.ExitInput;
+    }
+
+    private static string FormatProgress(ProgressEvent e)
+    {
+        var text = e.Stage;
+        if (e.Completed is int done && e.Total is int total)
+            text += " " + done + "/" + total;
+        if (!string.IsNullOrEmpty(e.Detail))
+            text += ": " + e.Detail;
+        return text;
     }
 
     private static int RecoverSlice(ReadOnlySpan<string> args)

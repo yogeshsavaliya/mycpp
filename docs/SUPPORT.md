@@ -5,7 +5,7 @@ Rows are independent. A check in one column does not imply the others.
 | Area | State in 0.3.0 | Evidence |
 | --- | --- | --- |
 | Input: Android APK (`.apk`) | Inventory, hash, bounded extraction | `InputAndMetadataTests`, CLI `inventory` on a synthetic APK |
-| Input: XAPK, APKS, APKM, nested APK | Rejected, not extracted | Recognized by extension and by nested `.apk` entries |
+| Input: XAPK, APKS, APKM, nested APK | Inventory of members, then one normalized APK when ARM64 native code and metadata agree | `PackageSetReaderTests`: missing split, conflicting binaries, unsafe names, decompression limit |
 | Input: Mono (`Managed/*.dll` and no IL2CPP files) | Detected as Mono. No method recovery | `Mono_and_wrong_architecture_are_explicit` |
 | ABI: `arm64-v8a`, ELF64 little-endian AArch64 (`e_machine` 183) | Selected by default and validated | Inventory test |
 | ABI: ARM32, x86, x86-64 | Identified. Not selected for recovery. x86-64 does not count as a successful IL2CPP ARM64 input | Architecture test |
@@ -20,7 +20,8 @@ Rows are independent. A check in one column does not imply the others.
 | Compilable C# | Emitted statements compile under Roslyn in the tests. That is not behavioural equivalence for an APK | Test project only. Roslyn is not in the engine |
 | Behavioural checks | Test-only, on the hand-written slices | 27 recovery tests. The APK report field stays "no behavioural validation was run" |
 | Desktop UI | Project builds. Open / analyze / search / export call the engine | `dotnet build` of `Il2CppRecover.Desktop` succeeded. Window not launched |
-| Web service | Not started | — |
+| Web workbench | Local import, analysis, results, and export on loopback | `Il2CppRecover.Web.Tests` and a headless Chrome walk of `http://127.0.0.1:5088` on Linux. The Windows PowerShell startup script was not executed |
+| AAB (`.aab`) | Not available. bundletool is not included and the bundle is not converted | Capabilities API and `PackageSetReaderTests` |
 
 ## ARM64 shapes the lifter accepts
 
@@ -41,4 +42,4 @@ Anything else, including `SDIV`, shifts, pre/post-index memory, indirect branche
 
 ## Later milestones, not in this tree
 
-ARM32, Windows `GameAssembly.dll`, WebGL, XAPK extraction, arrays, strings, switches, object construction, virtual and interface calls, value types, boxing, shared generic bodies, delegates, exceptions, coroutines, and a hosted web service.
+ARM32, Windows `GameAssembly.dll`, WebGL, AAB conversion, arrays, strings, switches, object construction, virtual and interface calls, value types, boxing, shared generic bodies, delegates, exceptions, and coroutines.

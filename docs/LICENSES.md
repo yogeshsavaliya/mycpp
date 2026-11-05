@@ -20,6 +20,8 @@ No GPL or other copyleft package is referenced. Il2CppDumper is not used.
 | xunit | 2.9.3 | Apache-2.0 | Tests. |
 | xunit.runner.visualstudio | 3.1.4 | Apache-2.0 | Tests. |
 | Microsoft.NET.Test.Sdk | 17.14.1 | MIT | Tests. |
+| Microsoft.Data.Sqlite | 9.0.0 | MIT | Local project and job database for the web workbench. |
+| Microsoft.AspNetCore.Mvc.Testing | 9.0.0 | MIT | Web host tests. The ASP.NET Core shared framework is part of the .NET SDK. |
 
 The Cpp2IL commit audited for behaviour is `12c8b4413900558a14e30adc4fc4d13d82383901` (tag `2022.1.0-pre-release.21`) from https://github.com/SamboyCoding/Cpp2IL.
 
@@ -38,6 +40,8 @@ These are present because of the pin. ARM64 lifting uses Disarm, not Capstone an
 | AssetRipper.Gee.External.Capstone | 2.3.2 | MIT | The nuspec expression is MIT. The package also contains native `libcapstone` / `capstone.dll` binaries. Upstream Capstone is BSD-3-Clause. A redistributed build that ships those binaries needs Capstone's copyright and license text. Our ARM64 lifter does not call Capstone. |
 | Samboy063.WasmDisassembler | 2022.1.0-pre-release.21 | MIT | WebAssembly path. Not used for Android ARM64. |
 | StableNameDotNet | 0.1.0-pre-release.21 | MIT | |
+
+The web interface in `web/studio` uses React 19.2.0, react-router-dom 7.9.4, Vite 7.1.12, and TypeScript 5.9.3. Their npm packages are MIT. `package-lock.json` records the install. No package from that tree is sent a user's APK.
 
 ## Other transitive desktop and test packages
 

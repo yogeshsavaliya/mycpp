@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>Il2CppRecover.Web</RootNamespace>
+    <AssemblyName>Il2CppRecover.Web</AssemblyName>
+    <Description>Local web workbench for Il2CppRecover.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Il2CppRecover.Engine\Il2CppRecover.Engine.csproj" />
+    <ProjectReference Include="..\Il2CppRecover.Cli\Il2CppRecover.Cli.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+  </ItemGroup>
+</Project>
