@@ -78,7 +78,14 @@ public static class Arm64Recoverer
 
         var reachable = Reachable(blocks);
         if (reachable.Any(b => b.Indirect || b.External))
-            return Incomplete(request, MethodRecoveryStatus.Unsupported, rendered, ["The slice contains an indirect branch or a branch outside the slice. The boundary was not guessed."]);
+        {
+            var notes = new List<string>();
+            if (reachable.Any(b => b.Indirect))
+                notes.Add("The slice contains an indirect branch (BR). Its target is not a constant, so the body was not invented.");
+            if (reachable.Any(b => b.External))
+                notes.Add("The slice contains a branch whose target is outside the slice. The boundary was not guessed.");
+            return Incomplete(request, MethodRecoveryStatus.Unsupported, rendered, notes);
+        }
 
         var lifted = TryLift(request, instructions, blocks, reachable, out var diagnostics);
         if (lifted is null)
@@ -240,12 +247,7 @@ public static class Arm64Recoverer
             return null;
         }
 
-        var exitIsTaken = insns[header.Last].Mnemonic switch
-        {
-            Arm64Mnemonic.B => BranchAddress(insns[header.Last]) == insns[exit.First].Address,
-            Arm64Mnemonic.CBZ or Arm64Mnemonic.CBNZ => PcRelative(insns[header.Last], 1) == insns[exit.First].Address,
-            _ => false
-        };
+        var exitIsTaken = BranchTargetAddress(insns[header.Last]) == insns[exit.First].Address;
         var stay = exitIsTaken ? Invert(taken) : taken;
         if (stay is null)
         {
@@ -596,6 +598,9 @@ public static class Arm64Recoverer
             return true;
         }
 
+        if (insn.Mnemonic is Arm64Mnemonic.TBZ or Arm64Mnemonic.TBNZ)
+            return TryBitTest(insn, state, out condition, out error);
+
         if (insn.Mnemonic != Arm64Mnemonic.B || insn.MnemonicConditionCode == Arm64ConditionCode.NONE)
         {
             error = $"0x{insn.Address:X}: expected a conditional branch.";
@@ -757,7 +762,7 @@ public static class Arm64Recoverer
         fallthrough = null;
         if (reachable.Count != 3 || entry.Succ.Count != 2)
             return false;
-        if (insns[entry.Last].Mnemonic is not (Arm64Mnemonic.B or Arm64Mnemonic.CBZ or Arm64Mnemonic.CBNZ))
+        if (insns[entry.Last].Mnemonic is not (Arm64Mnemonic.B or Arm64Mnemonic.CBZ or Arm64Mnemonic.CBNZ or Arm64Mnemonic.TBZ or Arm64Mnemonic.TBNZ))
             return false;
         var target = BranchTargetAddress(insns[entry.Last]);
         var takenBlock = entry.Succ.Select(i => reachable.First(b => b.Id == i)).FirstOrDefault(b => insns[b.First].Address == target);
@@ -907,10 +912,41 @@ public static class Arm64Recoverer
             return insn.BranchTarget;
         if (insn.Mnemonic is Arm64Mnemonic.CBZ or Arm64Mnemonic.CBNZ)
             return PcRelative(insn, 1);
+        if (insn.Mnemonic is Arm64Mnemonic.TBZ or Arm64Mnemonic.TBNZ)
+            return unchecked(insn.Address + (ulong)insn.Op2Imm);
         return null;
     }
 
-    private static ulong? BranchAddress(Arm64Instruction insn) => BranchTargetAddress(insn);
+    private static bool TryBitTest(Arm64Instruction insn, RegState state, out Expr condition, out string error)
+    {
+        condition = new ConstExpr(0, PrimitiveKind.Boolean);
+        if (!TryReadReg(insn.Op0Reg, state, out var value, out error))
+            return false;
+        if (value.Type is PrimitiveKind.Reference)
+        {
+            error = $"0x{insn.Address:X}: {insn.Mnemonic} tests a reference. That test was not rewritten as an integer.";
+            return false;
+        }
+
+        var bit = insn.Op1Imm;
+        if (bit is < 0 or > 62)
+        {
+            error = $"0x{insn.Address:X}: bit {bit} of {insn.Mnemonic} is outside the lifted range.";
+            return false;
+        }
+        if (bit > 31 && value.Type is not (PrimitiveKind.Int64 or PrimitiveKind.UInt64))
+        {
+            error = $"0x{insn.Address:X}: bit {bit} does not fit the lifted value.";
+            return false;
+        }
+
+        var maskType = value.Type is PrimitiveKind.Int64 or PrimitiveKind.UInt64 ? value.Type : PrimitiveKind.Int32;
+        var masked = new BinaryExpr("&", value, new ConstExpr(1L << (int)bit, maskType), maskType);
+        var op = insn.Mnemonic == Arm64Mnemonic.TBZ ? "==" : "!=";
+        condition = new BinaryExpr(op, masked, new ConstExpr(0, maskType), PrimitiveKind.Boolean);
+        error = "";
+        return true;
+    }
 
     private static ulong PcRelative(Arm64Instruction insn, int operand) =>
         operand == 1 ? insn.Op1PcRelImm : insn.Op0PcRelImm;

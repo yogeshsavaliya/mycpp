@@ -175,6 +175,9 @@ public sealed class MethodRecord
     public required string DeclaringType { get; init; }
     public required string Name { get; init; }
     public required string Signature { get; init; }
+    public string ReturnTypeName { get; init; } = "unresolved";
+    public IReadOnlyList<string> ParameterNames { get; init; } = [];
+    public IReadOnlyList<string> ParameterTypeNames { get; init; } = [];
     public uint? MetadataToken { get; init; }
     public int? MetadataMethodIndex { get; init; }
     public bool IsStatic { get; init; }

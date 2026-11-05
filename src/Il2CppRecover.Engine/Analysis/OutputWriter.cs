@@ -57,8 +57,8 @@ public static class OutputWriter
                     DeclaringType = m.DeclaringType,
                     Assembly = m.Assembly,
                     IsStatic = m.IsStatic,
-                    ReturnType = GuessReturn(m),
-                    Parameters = GuessParameters(m)
+                    DeclaredReturnType = string.IsNullOrWhiteSpace(m.ReturnTypeName) ? "unresolved" : m.ReturnTypeName,
+                    Parameters = DeclaredParameters(m)
                 },
                 Body: m.Status == MethodRecoveryStatus.RecoveredUnvalidated && m.CSharp is not null
                     ? m.CSharp
@@ -104,39 +104,24 @@ public static class OutputWriter
         }
     }
 
-    private static PrimitiveKind GuessReturn(MethodRecord method)
+    private static IReadOnlyList<ParameterContract> DeclaredParameters(MethodRecord method)
     {
-        var text = method.Signature;
-        if (text.Contains("Boolean", StringComparison.Ordinal) || text.Contains("bool", StringComparison.Ordinal))
-            return PrimitiveKind.Boolean;
-        if (text.Contains("UInt32", StringComparison.Ordinal) || text.Contains("uint", StringComparison.Ordinal))
-            return PrimitiveKind.UInt32;
-        if (text.Contains("Int64", StringComparison.Ordinal) || text.Contains("long", StringComparison.Ordinal))
-            return PrimitiveKind.Int64;
-        if (text.Contains("Void", StringComparison.Ordinal) || text.StartsWith("void", StringComparison.Ordinal) || text.Contains(" static void", StringComparison.Ordinal))
-            return PrimitiveKind.Void;
-        return PrimitiveKind.Int32;
-    }
-
-    private static IReadOnlyList<ParameterContract> GuessParameters(MethodRecord method)
-    {
-        var open = method.Signature.IndexOf('(');
-        var close = method.Signature.LastIndexOf(')');
-        if (open < 0 || close <= open)
-            return [];
-        var inside = method.Signature[(open + 1)..close];
-        if (string.IsNullOrWhiteSpace(inside))
-            return [];
-        var list = new List<ParameterContract>();
-        foreach (var part in inside.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        var count = Math.Max(method.ParameterNames.Count, method.ParameterTypeNames.Count);
+        var list = new List<ParameterContract>(count);
+        for (var i = 0; i < count; i++)
         {
-            var bits = part.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            var name = bits.Length == 0 ? "value" : bits[^1];
-            var typeText = bits.Length < 2 ? "int" : bits[0];
-            AnalysisPipeline.TryPrimitive(typeText, out var type);
-            if (type == PrimitiveKind.Reference)
-                type = PrimitiveKind.Int32;
-            list.Add(new ParameterContract { Name = name, Type = type });
+            var name = i < method.ParameterNames.Count && !string.IsNullOrWhiteSpace(method.ParameterNames[i])
+                ? method.ParameterNames[i]
+                : "param" + i;
+            var typeName = i < method.ParameterTypeNames.Count && !string.IsNullOrWhiteSpace(method.ParameterTypeNames[i])
+                ? method.ParameterTypeNames[i]
+                : "unresolved";
+            list.Add(new ParameterContract
+            {
+                Name = name,
+                Type = PrimitiveKind.Int32,
+                DeclaredType = typeName
+            });
         }
         return list;
     }

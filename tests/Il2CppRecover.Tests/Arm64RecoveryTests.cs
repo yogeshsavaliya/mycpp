@@ -200,6 +200,57 @@ public class Arm64RecoveryTests
         Assert.Contains("7", result.CandidateCSharp);
     }
 
+    [Theory]
+    [InlineData(0, 2)]
+    [InlineData(1, 1)]
+    [InlineData(2, 2)]
+    [InlineData(3, 1)]
+    public void In_slice_tbz_is_a_bit_test_not_an_external_branch(int value, int expected)
+    {
+        var code = Arm64Asm.Words(
+            Arm64Asm.Tbz(0, 0, 12),
+            Arm64Asm.Movz(0, 1),
+            Arm64Asm.Ret(),
+            Arm64Asm.Movz(0, 2),
+            Arm64Asm.Ret());
+        var contract = Method("LowBitClear", PrimitiveKind.Int32, true, null, ("value", PrimitiveKind.Int32));
+        var result = Lift(code, contract);
+        Assert.Equal(MethodRecoveryStatus.RecoveredUnvalidated, result.Status);
+        Assert.False(result.CSharpIsPlaceholder);
+        Assert.Contains("& 1", result.CSharp);
+        Assert.DoesNotContain("outside the slice", string.Join(" ", result.Diagnostics));
+        Assert.Equal(expected, Run(result, contract, value));
+    }
+
+    [Fact]
+    public void Tbnz_keeps_the_set_bit_path()
+    {
+        var code = Arm64Asm.Words(
+            Arm64Asm.Tbnz(0, 1, 12),
+            Arm64Asm.Movz(0, 1),
+            Arm64Asm.Ret(),
+            Arm64Asm.Movz(0, 2),
+            Arm64Asm.Ret());
+        var contract = Method("Bit1Set", PrimitiveKind.Int32, true, null, ("value", PrimitiveKind.Int32));
+        var result = Lift(code, contract);
+        Assert.Equal(MethodRecoveryStatus.RecoveredUnvalidated, result.Status);
+        Assert.Contains("& 2", result.CSharp);
+        Assert.Equal(1, Run(result, contract, 0));
+        Assert.Equal(2, Run(result, contract, 2));
+    }
+
+    [Fact]
+    public void Tbz_target_outside_the_slice_stays_unrecovered()
+    {
+        var code = Arm64Asm.Words(Arm64Asm.Tbz(0, 0, 64), Arm64Asm.Movz(0, 1), Arm64Asm.Ret());
+        var result = Lift(code, Method("Leaves", PrimitiveKind.Int32, true, null, ("value", PrimitiveKind.Int32)));
+        Assert.Equal(MethodRecoveryStatus.Unsupported, result.Status);
+        Assert.True(result.CSharpIsPlaceholder);
+        Assert.Contains("outside the slice", string.Join(" ", result.Diagnostics));
+        Assert.DoesNotContain("return 0;", result.CSharp);
+        Assert.DoesNotContain("return 1;", result.CSharp);
+    }
+
     [Fact]
     public void Unknown_memory_access_is_not_invented()
     {

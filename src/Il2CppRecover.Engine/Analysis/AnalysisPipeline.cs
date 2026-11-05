@@ -137,8 +137,10 @@ public static class AnalysisPipeline
     private static MethodRecord BuildOne(CatalogImage image, CatalogType type, CatalogMethod method, Dictionary<int, EngineMethod> nativeByIndex, List<ulong> orderedAddresses, byte[]? binary, ElfImage? elf, bool placeholders)
     {
         var kind = method.IsAbstract ? MethodKind.Abstract : method.IsExternal ? MethodKind.External : method.IsGeneric ? MethodKind.Generic : MethodKind.Concrete;
-        var signature = (method.IsStatic ? "static " : "") + method.ReturnType + " " + type.Namespace + (type.Namespace.Length == 0 ? "" : ".") + type.Name + "::" + method.Name + "(" + string.Join(", ", method.Parameters.Select(p => p.Type + " " + p.Name)) + ")";
         var diagnostics = new List<string>();
+        nativeByIndex.TryGetValue(method.MetadataIndex, out var resolvedNative);
+        var returnTypeName = ResolveDeclaredTypes(method, resolvedNative, diagnostics, out var parameterTypeNames);
+        var signature = (method.IsStatic ? "static " : "") + returnTypeName + " " + type.Namespace + (type.Namespace.Length == 0 ? "" : ".") + type.Name + "::" + method.Name + "(" + string.Join(", ", method.Parameters.Select((p, i) => parameterTypeNames[i] + " " + p.Name)) + ")";
         string? address = null;
         string? fileOffset = null;
         var instructions = new List<NativeInstruction>();
@@ -211,6 +213,9 @@ public static class AnalysisPipeline
             DeclaringType = type.Name,
             Name = method.Name,
             Signature = signature,
+            ReturnTypeName = returnTypeName,
+            ParameterNames = method.Parameters.Select(p => p.Name).ToList(),
+            ParameterTypeNames = parameterTypeNames,
             MetadataToken = method.Token,
             MetadataMethodIndex = method.MetadataIndex,
             IsStatic = method.IsStatic,
@@ -278,6 +283,24 @@ public static class AnalysisPipeline
             Parameters = parameters
         };
         return true;
+    }
+
+    public static string ResolveDeclaredTypes(CatalogMethod method, EngineMethod? native, IList<string> diagnostics, out IReadOnlyList<string> parameterTypes)
+    {
+        var returnType = string.IsNullOrWhiteSpace(method.ReturnType) ? "unresolved" : method.ReturnType;
+        var parameters = method.Parameters.Select(p => string.IsNullOrWhiteSpace(p.Type) ? "unresolved" : p.Type).ToList();
+        if (native is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(native.ReturnType))
+                returnType = native.ReturnType;
+            if (native.ParameterTypes.Count == method.Parameters.Count)
+                parameters = native.ParameterTypes.Select(type => string.IsNullOrWhiteSpace(type) ? "unresolved" : type).ToList();
+            else
+                diagnostics.Add("The native loader returned " + native.ParameterTypes.Count + " parameter types for " + method.Parameters.Count + " metadata parameters. Parameter types were left unresolved and were not replaced with int.");
+        }
+
+        parameterTypes = parameters;
+        return returnType;
     }
 
     public static bool TryPrimitive(string text, out PrimitiveKind kind)
