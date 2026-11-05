@@ -1,10 +1,11 @@
+using Il2CppRecover.EngineAdapter;
 using Il2CppRecover.Recovery;
 
 namespace Il2CppRecover.Analysis;
 
 public static class OutputWriter
 {
-    public static void Write(string outputDirectory, InventoryResult inventory, MetadataCatalog? catalog, IReadOnlyList<MethodRecord> methods, RecoveryReport report, IReadOnlyList<string> logs, string? engineDiagnostic)
+    public static void Write(string outputDirectory, InventoryResult inventory, MetadataCatalog? catalog, IReadOnlyList<MethodRecord> methods, RecoveryReport report, IReadOnlyList<string> logs, string? engineDiagnostic, IReadOnlyList<EngineTypeInfo>? types = null)
     {
         Directory.CreateDirectory(outputDirectory);
         File.WriteAllText(Path.Combine(outputDirectory, "inventory.json"), JsonDefaults.Serialize(inventory));
@@ -49,23 +50,43 @@ public static class OutputWriter
         foreach (var group in methods.GroupBy(m => m.Assembly + "|" + m.Namespace + "|" + m.DeclaringType))
         {
             var first = group.First();
-            var bodies = group.Select(m => (
-                Contract: new MethodContract
-                {
-                    Name = m.Name,
-                    Namespace = m.Namespace,
-                    DeclaringType = m.DeclaringType,
-                    Assembly = m.Assembly,
-                    IsStatic = m.IsStatic,
-                    DeclaredReturnType = string.IsNullOrWhiteSpace(m.ReturnTypeName) ? "unresolved" : m.ReturnTypeName,
-                    Parameters = DeclaredParameters(m)
-                },
-                Body: m.Status == MethodRecoveryStatus.RecoveredUnvalidated && m.CSharp is not null
-                    ? m.CSharp
-                    : m.CSharp ?? "// No C# was emitted for this method.",
-                Placeholder: m.CSharpIsPlaceholder || m.Status != MethodRecoveryStatus.RecoveredUnvalidated
-            )).ToList();
-            var text = CSharpEmitter.EmitType(first.Namespace, first.DeclaringType, bodies);
+            var facts = types?.FirstOrDefault(t => t.Image == first.Assembly && t.Namespace == first.Namespace && t.Name == first.DeclaringType);
+            var declarationFields = (facts?.Fields ?? []).Select(field => new FieldContract
+            {
+                Name = field.Name,
+                Type = PrimitiveKind.Int32,
+                DeclaredType = field.Type,
+                Access = field.Access,
+                IsStatic = field.IsStatic,
+                InstanceOffset = field.Offset
+            }).ToList();
+            var bodies = new List<(MethodContract Contract, string Body, bool Placeholder)>();
+            foreach (var method in group)
+            {
+                bodies.Add((
+                    new MethodContract
+                    {
+                        Name = method.Name,
+                        Namespace = method.Namespace,
+                        DeclaringType = method.DeclaringType,
+                        Assembly = method.Assembly,
+                        IsStatic = method.IsStatic,
+                        IsAbstract = method.MethodKind == MethodKind.Abstract,
+                        IsVirtual = method.IsVirtual,
+                        Access = string.IsNullOrWhiteSpace(method.Access) ? "unresolved" : method.Access,
+                        DeclaredReturnType = string.IsNullOrWhiteSpace(method.ReturnTypeName) ? "unresolved" : method.ReturnTypeName,
+                        Parameters = DeclaredParameters(method),
+                        Fields = bodies.Count == 0 ? declarationFields : []
+                    },
+                    method.Status == MethodRecoveryStatus.RecoveredUnvalidated && method.CSharp is not null
+                        ? method.CSharp
+                        : method.CSharp ?? "// No C# was emitted for this method.",
+                    method.CSharpIsPlaceholder || method.Status != MethodRecoveryStatus.RecoveredUnvalidated));
+            }
+            var baseType = facts?.BaseType;
+            if (baseType is "System.Object" or "System.ValueType")
+                baseType = null;
+            var text = CSharpEmitter.EmitType(first.Namespace, first.DeclaringType, bodies, baseType, facts?.IsValueType ?? false, facts?.IsEnum ?? false, facts?.Events ?? [], facts?.DeclaringType);
             var safeAssembly = Sanitize(first.Assembly);
             var directory = Path.Combine(codeDir, safeAssembly, string.IsNullOrEmpty(first.Namespace) ? "_" : Sanitize(first.Namespace));
             Directory.CreateDirectory(directory);

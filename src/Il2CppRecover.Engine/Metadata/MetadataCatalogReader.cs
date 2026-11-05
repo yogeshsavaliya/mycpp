@@ -66,6 +66,8 @@ public static class MetadataCatalogReader
                                 Token = method.token,
                                 IsStatic = method.IsStatic,
                                 IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
+                                IsVirtual = (method.Attributes & MethodAttributes.Virtual) != 0 && (method.Attributes & MethodAttributes.Abstract) == 0,
+                                Access = MetadataNames.Access((int)method.Attributes & 7),
                                 IsExternal = (method.Attributes & MethodAttributes.PinvokeImpl) != 0 ||
                                              (method.MethodImplAttributes & MethodImplAttributes.InternalCall) != 0,
                                 IsGeneric = method.genericContainerIndex.IsNonNull,

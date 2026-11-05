@@ -252,6 +252,42 @@ public class Arm64RecoveryTests
     }
 
     [Fact]
+    public void Clang_add_and_csel_max_match_the_source_behaviour()
+    {
+        var add = Lift(Arm64Asm.Words(0x0B000020, Arm64Asm.Ret()), Binary("Add"));
+        Assert.Equal(MethodRecoveryStatus.RecoveredUnvalidated, add.Status);
+        Assert.Equal(5, Run(add, Binary("Add"), 2, 3));
+
+        var max = Lift(Arm64Asm.Words(0x6B01001F, 0x1A81C000, Arm64Asm.Ret()), Binary("Max"));
+        Assert.Equal(MethodRecoveryStatus.RecoveredUnvalidated, max.Status);
+        Assert.Contains("?", max.CSharp);
+        Assert.Equal(2, Run(max, Binary("Max"), 1, 2));
+        Assert.Equal(3, Run(max, Binary("Max"), 3, 1));
+        Assert.Equal(-1, Run(max, Binary("Max"), -1, -5));
+    }
+
+    [Fact]
+    public void Clang_fadd_matches_float_addition()
+    {
+        var contract = Method("Fadd", PrimitiveKind.Single, true, null, ("a", PrimitiveKind.Single), ("b", PrimitiveKind.Single));
+        var result = Lift(Arm64Asm.Words(0x1E212800, Arm64Asm.Ret()), contract);
+        Assert.Equal(MethodRecoveryStatus.RecoveredUnvalidated, result.Status);
+        Assert.False(result.CSharpIsPlaceholder);
+        Assert.Equal(4.0f, Run(result, contract, 1.5f, 2.5f));
+    }
+
+    [Fact]
+    public void Clang_strength_reduced_loop_is_not_rewritten_as_a_for_loop()
+    {
+        var code = Arm64Asm.Words(0x71000408, 0x540000CB, 0x51000809, 0x9BA97D09, 0xD341FD29, 0x0B090100, Arm64Asm.Ret(), 0x2A1F03E0, Arm64Asm.Ret());
+        var result = Lift(code, Method("SumTo", PrimitiveKind.Int32, true, null, ("n", PrimitiveKind.Int32)));
+        Assert.NotEqual(MethodRecoveryStatus.RecoveredUnvalidated, result.Status);
+        Assert.True(result.CSharpIsPlaceholder);
+        Assert.DoesNotContain("for (", result.CSharp);
+        Assert.DoesNotContain("while", result.CSharp);
+    }
+
+    [Fact]
     public void Unknown_memory_access_is_not_invented()
     {
         var result = Lift(Arm64Asm.Words(Arm64Asm.LdrW(0, 0, 0x20), Arm64Asm.Ret()), Method("GetScore", PrimitiveKind.Int32, false));

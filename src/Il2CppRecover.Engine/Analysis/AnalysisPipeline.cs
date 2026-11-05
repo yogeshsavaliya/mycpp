@@ -82,7 +82,7 @@ public static class AnalysisPipeline
         var methods = BuildMethods(catalog, engine, binaryBytes, elf, options.EmitPlaceholders, cancellationToken, progress);
         var report = RecoveryReportBuilder.Build(methods);
         Log("Writing output");
-        OutputWriter.Write(outputDirectory, inventory, catalog, methods, report, logs, engine?.Diagnostic);
+        OutputWriter.Write(outputDirectory, inventory, catalog, methods, report, logs, engine?.Diagnostic, engine?.Types);
         return new AnalysisOutput
         {
             Inventory = inventory,
@@ -102,6 +102,7 @@ public static class AnalysisPipeline
             return records;
 
         var nativeByIndex = (engine?.Methods ?? []).Where(m => m.MetadataIndex >= 0).ToDictionary(m => m.MetadataIndex);
+        var typesByName = (engine?.Types ?? []).GroupBy(t => t.Image + "|" + t.Namespace + "|" + t.Name).ToDictionary(g => g.Key, g => g.First());
         var orderedAddresses = nativeByIndex.Values.Select(m => m.VirtualAddress).Where(a => a != 0).Distinct().Order().ToList();
         var total = catalog.Images.Sum(i => i.Types.Sum(t => t.Methods.Count));
         var done = 0;
@@ -115,7 +116,8 @@ public static class AnalysisPipeline
                     done++;
                     if (done % 50 == 0)
                         progress?.Report(new ProgressEvent { Stage = "Methods", Completed = done, Total = total });
-                    records.Add(BuildOne(image, type, method, nativeByIndex, orderedAddresses, binary, elf, placeholders));
+                    typesByName.TryGetValue(image.Name + "|" + type.Namespace + "|" + type.Name, out var typeInfo);
+                    records.Add(BuildOne(image, type, method, nativeByIndex, orderedAddresses, binary, elf, placeholders, typeInfo));
                 }
             }
         }
@@ -134,7 +136,7 @@ public static class AnalysisPipeline
         return records;
     }
 
-    private static MethodRecord BuildOne(CatalogImage image, CatalogType type, CatalogMethod method, Dictionary<int, EngineMethod> nativeByIndex, List<ulong> orderedAddresses, byte[]? binary, ElfImage? elf, bool placeholders)
+    private static MethodRecord BuildOne(CatalogImage image, CatalogType type, CatalogMethod method, Dictionary<int, EngineMethod> nativeByIndex, List<ulong> orderedAddresses, byte[]? binary, ElfImage? elf, bool placeholders, EngineTypeInfo? typeInfo)
     {
         var kind = method.IsAbstract ? MethodKind.Abstract : method.IsExternal ? MethodKind.External : method.IsGeneric ? MethodKind.Generic : MethodKind.Concrete;
         var diagnostics = new List<string>();
@@ -175,7 +177,7 @@ public static class AnalysisPipeline
                 status = instructions.Count > 0 ? MethodRecoveryStatus.Disassembled : MethodRecoveryStatus.Unsupported;
                 diagnostics.Add("Generic methods are disassembled only. Shared generic bodies are not recovered in this milestone.");
             }
-            else if (!TryContract(image, type, method, native, out var contract, out var why))
+            else if (!TryContract(image, type, method, native, typeInfo, out var contract, out var why))
             {
                 instructions.AddRange(Arm64Recoverer.Disassemble(code, native.VirtualAddress));
                 status = instructions.Count > 0 ? MethodRecoveryStatus.Disassembled : MethodRecoveryStatus.MetadataOnly;
@@ -219,6 +221,8 @@ public static class AnalysisPipeline
             MetadataToken = method.Token,
             MetadataMethodIndex = method.MetadataIndex,
             IsStatic = method.IsStatic,
+            Access = method.Access,
+            IsVirtual = method.IsVirtual,
             MethodKind = kind,
             NativeVirtualAddress = address,
             NativeFileOffset = fileOffset,
@@ -247,9 +251,9 @@ public static class AnalysisPipeline
         return Math.Max(cap, 0);
     }
 
-    private static bool TryContract(CatalogImage image, CatalogType type, CatalogMethod method, EngineMethod native, out MethodContract contract, out string error)
+    private static bool TryContract(CatalogImage image, CatalogType type, CatalogMethod method, EngineMethod native, EngineTypeInfo? typeInfo, out MethodContract contract, out string error)
     {
-        contract = new MethodContract { Name = method.Name, DeclaringType = type.Name, Namespace = type.Namespace, Assembly = image.Name, IsStatic = method.IsStatic };
+        contract = new MethodContract { Name = method.Name, DeclaringType = type.Name, Namespace = type.Namespace, Assembly = image.Name, IsStatic = method.IsStatic, Fields = LifterFields(typeInfo) };
         error = "";
         if (!TryPrimitive(native.ReturnType, out var ret))
         {
@@ -280,9 +284,33 @@ public static class AnalysisPipeline
             IsStatic = method.IsStatic,
             IsGeneric = method.IsGeneric,
             ReturnType = ret,
-            Parameters = parameters
+            Parameters = parameters,
+            Fields = LifterFields(typeInfo)
         };
         return true;
+    }
+
+    private static IReadOnlyList<FieldContract> LifterFields(EngineTypeInfo? typeInfo)
+    {
+        if (typeInfo is null)
+            return [];
+        var fields = new List<FieldContract>();
+        foreach (var field in typeInfo.Fields)
+        {
+            if (field.IsStatic || field.Offset is not int offset)
+                continue;
+            if (!TryPrimitive(field.Type, out var primitive) || primitive is PrimitiveKind.Reference or PrimitiveKind.Single or PrimitiveKind.Double)
+                continue;
+            fields.Add(new FieldContract
+            {
+                Name = field.Name,
+                Type = primitive,
+                DeclaredType = field.Type,
+                Access = field.Access,
+                InstanceOffset = offset
+            });
+        }
+        return fields;
     }
 
     public static string ResolveDeclaredTypes(CatalogMethod method, EngineMethod? native, IList<string> diagnostics, out IReadOnlyList<string> parameterTypes)

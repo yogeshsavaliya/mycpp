@@ -116,6 +116,8 @@ public sealed class CatalogMethod
     public uint Token { get; init; }
     public bool IsStatic { get; init; }
     public bool IsAbstract { get; init; }
+    public bool IsVirtual { get; init; }
+    public string Access { get; init; } = "public";
     public bool IsExternal { get; init; }
     public bool IsGeneric { get; init; }
     public int ParameterCount { get; init; }
@@ -181,6 +183,8 @@ public sealed class MethodRecord
     public uint? MetadataToken { get; init; }
     public int? MetadataMethodIndex { get; init; }
     public bool IsStatic { get; init; }
+    public string Access { get; init; } = "public";
+    public bool IsVirtual { get; init; }
     public MethodKind MethodKind { get; set; }
     public string? NativeVirtualAddress { get; init; }
     public string? NativeFileOffset { get; init; }

@@ -78,6 +78,8 @@ public sealed class FieldContract
     public required string Name { get; init; }
     public required PrimitiveKind Type { get; init; }
     public bool IsStatic { get; init; }
+    public string Access { get; init; } = "public";
+    public string? DeclaredType { get; init; }
     public int? InstanceOffset { get; init; }
     public ulong? AbsoluteAddress { get; init; }
 }
@@ -89,6 +91,9 @@ public sealed class MethodContract
     public required string DeclaringType { get; init; }
     public string Assembly { get; init; } = "Assembly-CSharp";
     public bool IsStatic { get; init; }
+    public bool IsAbstract { get; init; }
+    public bool IsVirtual { get; init; }
+    public string Access { get; init; } = "public";
     public bool IsGeneric { get; init; }
     public PrimitiveKind ReturnType { get; init; }
     public string? DeclaredReturnType { get; init; }

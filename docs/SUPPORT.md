@@ -32,6 +32,8 @@ Integer AAPCS64 only. Static arguments start in W0/X0. Instance `this` is X0 and
 | `MOVZ` / `MOVN` / `MOV` and `RET` | `RecoveredUnvalidated` |
 | `ADD` `SUB` `MUL` `AND` `ORR` `EOR` without a shift or extend | `RecoveredUnvalidated`, integer math inside `unchecked` |
 | `CMP` plus `B.cond`, `CBZ`, `CBNZ`, `TBZ`, or `TBNZ` where both successors return | `RecoveredUnvalidated`. Unsigned conditions use a `uint` or `ulong` compare. `TBZ`/`TBNZ` are bit tests of a lifted integer, and an in-slice target is not reported as leaving the method |
+| `CMP` plus `CSEL` and `RET` | `RecoveredUnvalidated` when the condition is one of the lifted compares. Clang 18 `-O1` `max` uses this shape |
+| Scalar `FADD` of `S` or `D` registers and `RET` | `RecoveredUnvalidated` for an all-float or mixed AAPCS64 signature whose values are in the lifted registers. Other floating-point instructions stay unrecovered |
 | One while-loop: optional prelude, header of `CMP`/`NOP` only, body ending in `B` back to the header, exit ending in `RET` | `RecoveredUnvalidated` |
 | `BL` whose target is in the supplied call map | `RecoveredUnvalidated` |
 | Unsigned-offset `LDR`/`STR` of a supplied instance field offset, or a static field whose ADRP+ADD address matches | `RecoveredUnvalidated` |

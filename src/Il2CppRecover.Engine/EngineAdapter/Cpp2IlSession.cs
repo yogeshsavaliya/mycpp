@@ -9,6 +9,7 @@ public sealed class EngineLoadResult
     public bool Loaded { get; init; }
     public string Diagnostic { get; init; } = "";
     public IReadOnlyList<EngineMethod> Methods { get; init; } = [];
+    public IReadOnlyList<EngineTypeInfo> Types { get; init; } = [];
 }
 
 public sealed class EngineMethod
@@ -22,6 +23,28 @@ public sealed class EngineMethod
     public bool IsStatic { get; init; }
     public string ReturnType { get; init; } = "unresolved";
     public IReadOnlyList<string> ParameterTypes { get; init; } = [];
+}
+
+public sealed class EngineTypeInfo
+{
+    public required string Image { get; init; }
+    public required string Namespace { get; init; }
+    public required string Name { get; init; }
+    public string? BaseType { get; init; }
+    public string? DeclaringType { get; init; }
+    public bool IsValueType { get; init; }
+    public bool IsEnum { get; init; }
+    public IReadOnlyList<EngineFieldInfo> Fields { get; init; } = [];
+    public IReadOnlyList<string> Events { get; init; } = [];
+}
+
+public sealed class EngineFieldInfo
+{
+    public required string Name { get; init; }
+    public required string Type { get; init; }
+    public string Access { get; init; } = "unresolved";
+    public bool IsStatic { get; init; }
+    public int? Offset { get; init; }
 }
 
 /// <summary>
@@ -51,6 +74,7 @@ public static class Cpp2IlSession
                 }
 
                 var methods = new List<EngineMethod>();
+                var types = new List<EngineTypeInfo>();
                 var meta = LibCpp2IlMain.TheMetadata;
                 if (meta is null)
                     return new EngineLoadResult { Loaded = false, Diagnostic = "LibCpp2IL did not retain a metadata object." };
@@ -59,6 +83,54 @@ public static class Cpp2IlSession
                 {
                     foreach (var type in image.Types ?? [])
                     {
+                        var fields = new List<EngineFieldInfo>();
+                        var fieldOrdinal = 0;
+                        foreach (var field in type.Fields ?? [])
+                        {
+                            var attr = type.FieldAttributes is { } attrs && fieldOrdinal < attrs.Length ? attrs[fieldOrdinal] : 0;
+                            var isStatic = (attr & System.Reflection.FieldAttributes.Static) != 0;
+                            int? offset = null;
+                            try
+                            {
+                                if (LibCpp2IlMain.Binary is not null)
+                                {
+                                    var value = LibCpp2IlMain.Binary.GetFieldOffsetFromIndex(type.TypeIndex, fieldOrdinal, field.FieldIndex, type.IsValueType, isStatic);
+                                    if (value >= 0)
+                                        offset = value;
+                                }
+                            }
+                            catch (Exception)
+                            {
+                                offset = null;
+                            }
+                            fields.Add(new EngineFieldInfo
+                            {
+                                Name = field.Name ?? "",
+                                Type = field.FieldType?.ToString() ?? "unresolved",
+                                Access = Metadata.MetadataNames.Access((int)attr & 7),
+                                IsStatic = isStatic,
+                                Offset = offset
+                            });
+                            fieldOrdinal++;
+                        }
+                        var events = new List<string>();
+                        foreach (var ev in type.Events ?? [])
+                        {
+                            if (!string.IsNullOrWhiteSpace(ev.Name))
+                                events.Add(ev.Name);
+                        }
+                        types.Add(new EngineTypeInfo
+                        {
+                            Image = image.Name ?? "",
+                            Namespace = type.Namespace ?? "",
+                            Name = type.Name ?? "",
+                            BaseType = type.BaseType?.ToString(),
+                            DeclaringType = type.DeclaringType?.Name,
+                            IsValueType = type.IsValueType,
+                            IsEnum = type.IsEnumType,
+                            Fields = fields,
+                            Events = events
+                        });
                         foreach (var method in type.Methods ?? [])
                         {
                             ulong address = 0;
@@ -107,7 +179,8 @@ public static class Cpp2IlSession
                 {
                     Loaded = true,
                     Diagnostic = "LibCpp2IL loaded the binary and metadata. Method-body status still comes from Il2CppRecover's lifter, not from Cpp2IL dummy DLL output.",
-                    Methods = methods
+                    Methods = methods,
+                    Types = types
                 };
             }
             catch (Exception ex)
