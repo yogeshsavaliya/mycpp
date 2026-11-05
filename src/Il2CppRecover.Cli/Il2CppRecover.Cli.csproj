@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Il2CppRecover.Cli</RootNamespace>
+    <AssemblyName>il2cpp-recover</AssemblyName>
+    <Description>Local command-line interface for Il2CppRecover.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Il2CppRecover.Engine\Il2CppRecover.Engine.csproj" />
+  </ItemGroup>
+</Project>
