@@ -20,3 +20,4 @@ These limits are part of the result, not a temporary disclaimer in front of a br
 16. Original local names, comments, and a byte-identical rebuild of the Unity project are not goals and are not claimed.
 17. Windows execution, installers, and Job Object limits were not run. The desktop executable was compiled on Linux and the window was not opened.
 18. `FullyRecoveredUniqueBodies / MethodsInMetadata` is not a quality score. The report prints the numerator definition and leaves compilation and behaviour unchecked unless a specific pass sets them.
+19. The web workbench was exercised on Linux with a synthetic APK. That run does not measure recovery of a Unity-built game. `scripts/start-studio.ps1` was not executed on Windows. An Android App Bundle is shown as unavailable until a tested bundletool conversion exists.

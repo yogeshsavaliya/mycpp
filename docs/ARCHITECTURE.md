@@ -8,7 +8,10 @@ Il2CppRecover is a .NET 9 solution. The analysis engine does not reference Avalo
 | `Il2CppRecover.Engine` | APK inventory, ELF inspection, metadata catalog, pinned LibCpp2IL adapter, ARM64 lifter, exports, worker host. |
 | `Il2CppRecover.Cli` | `il2cpp-recover` commands. |
 | `Il2CppRecover.Desktop` | Avalonia 11.3.6 window that calls `AnalysisPipeline` on a background thread. |
-| `Il2CppRecover.Tests` | Synthetic metadata, hand-written ARM64, Roslyn execution of lifted C#. |
+| `Il2CppRecover.Web` | ASP.NET Core host for IL2CPP Recovery Studio. SQLite stores projects, jobs, and settings. A background service starts `il2cpp-recover worker` in a separate process. |
+| `web/studio` | React and TypeScript interface. The production build is served by the web host from the same origin. |
+| `Il2CppRecover.Tests` | Synthetic metadata, hand-written ARM64, Roslyn execution of lifted C#, and nested-package cases. |
+| `Il2CppRecover.Web.Tests` | Import, analysis, export, cancellation, retry, and restart against the web host. |
 
 ## Upstream boundary
 
@@ -29,7 +32,9 @@ LibCpp2IL keeps process-wide statics (`LibCpp2IlMain.TheMetadata` and friends). 
 
 ## Input path
 
-`ApkArchive` opens the APK read-only with `ZipArchive`. It rejects absolute names, drive-like names, `.` and `..` segments, more than 100,000 entries, an entry over 512 MB, a total over 2 GB, and a compression ratio above 100 when the compressed size is at least 64 KB. The original APK is hashed before extraction. Extracted bytes are hashed after the write stream is closed. `.xapk`, `.apks`, and `.apkm` inputs, and nested `.apk` entries, are rejected as split packages and are not unpacked.
+`ApkArchive` opens one APK read-only with `ZipArchive`. It rejects absolute names, drive-like names, `.` and `..` segments, more than 100,000 entries, an entry over 512 MB, a total over 2 GB, and a compression ratio above 100 when the compressed size is at least 64 KB. The original APK is hashed before extraction. Extracted bytes are hashed after the write stream is closed. Calling `ApkArchive` directly on `.xapk`, `.apks`, `.apkm`, or a zip of nested `.apk` files rejects the input.
+
+`PackageSetReader` is the web and CLI-facing normalizer. It detects ELF, PE, WebAssembly, IPA, and AAB by content. An Android App Bundle is reported unavailable because bundletool is not included and no conversion is performed. A zip of nested APKs is unpacked under the same size limits, and each member is scanned. The reader keeps one `global-metadata.dat` and one `libil2cpp.so` for the requested ABI. Identical hashes are noted once. Different hashes are rejected. The normalized APK and `origins.json` record which member each file came from. A plain APK is analyzed from the original file.
 
 Unity version detection reads the C string at `globalgamemanagers` offset `0x14`, then `0x30`, then `data.unity3d` offset `0x12`. A later ASCII scan of the first 2 MB of extracted files is accepted only when it finds one unique match of `^[0-9]+\.[0-9]+\.[0-9]+[abcfxp][0-9]+$`. Several distinct matches leave the version unset. A user-supplied version is stored only when it matches that pattern and either nothing was detected or it equals the detected string.
 

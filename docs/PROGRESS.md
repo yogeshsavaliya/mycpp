@@ -1,6 +1,6 @@
 # Progress
 
-Updated 5 November 2026, 12:44 IST (Asia/Calcutta).
+Updated 5 November 2026, 13:55 IST (Asia/Calcutta).
 
 ## Completed
 
@@ -13,6 +13,8 @@ Milestone 2. `analyze` reads a synthetic metadata v31 catalog through LibCpp2IL 
 Milestone 3. The lifter covers the shapes in `docs/SUPPORT.md`. Tests compile the emitted C# with Roslyn and call it for wraparound, signed and unsigned compares, a while-loop sum, field get/set, and a direct call. An unsupported word is a placeholder and does not contain `return 0;`. A next-method-address slice stays `PartiallyRecovered`.
 
 Milestone 4, partial. The Avalonia project builds and is wired to `AnalysisPipeline`. The window was not opened.
+
+Milestone 5. IL2CPP Recovery Studio is a local web application on the same pipeline. Import stores an APK, a worker process runs `il2cpp-recover worker`, and the results page reads the report. XAPK, APKS, and APKM are normalized by `PackageSetReader` before that pipeline. AAB stays unavailable. The interface text is English.
 
 ## Commands actually run
 
@@ -70,17 +72,32 @@ public static int Add(int a, int b)
 
 The bytes were `ADD W0, W0, W1; RET` (`00 00 01 0B`, `C0 03 5F D6`) at address `0x1000`.
 
+```text
+dotnet test Il2CppRecover.sln
+dotnet build Il2CppRecover.sln
+cd web/studio && npm run build
+./scripts/start-studio.sh
+```
+
+On 5 November 2026, after the web workbench: engine tests Passed 45, web tests Passed 7, solution build 0 warnings. `npm run build` wrote `web/studio/dist`. `./scripts/start-studio.sh` printed `IL2CPP Recovery Studio is ready at http://127.0.0.1:5088` and `/api/health` returned 200. Ctrl+C stopped it. `xdg-open` was not confirmed to open a window. `scripts/start-studio.ps1` was not executed.
+
+Headless Chrome and a visible Chrome window on the same machine opened `http://127.0.0.1:5088`, imported `/tmp/studio-game.apk` (the synthetic ELF, metadata v31, and `globalgamemanagers` fixture, not a Unity player), and showed job state Completed with Limitations, Unity `2022.3.62f3` from `globalgamemanagers+0x14`, assembly size “Not available”, and the notice “Method body not recovered.” The Import Package page listed APK and XAPK/APKS/APKM as supported and AAB as not available yet.
+
 ## Verified
 
 - Solution tests on Linux with SDK 9.0.320.
 - CLI inventory, analyze, and recover-slice against the synthetic APK and the two-instruction slice above.
 - Desktop project compilation.
+- Web host tests: import of a synthetic APK, engine report, placeholder export, invalid uploads, nested-package rejection, cancel, retry, and restart.
+- Browser walk of `http://127.0.0.1:5088` on Linux, including the start script reaching health.
 
 ## Not verified
 
 - Unity Editor 2022.3.62f3 and the Android IL2CPP player build. Blocked: Unity is not installed. `fixtures/Unity2022.3.62f3/BUILD.md` describes the missing step. No end-to-end recovery of a Unity-built `libil2cpp.so` was run, and none is claimed.
 - That Unity emits the ARM64 sequences in the tests.
-- Windows process isolation, installers, and the Avalonia window.
+- Windows process isolation, installers, the Avalonia window, and `scripts/start-studio.ps1`.
+- `xdg-open` actually displaying a browser window.
+- Recovery accuracy on a Unity-built game. The browser walk used the synthetic APK.
 - Real code-registration parsing, Il2CppType resolution, and metadata-backed field offsets.
 
 ## Next implementation step

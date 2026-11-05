@@ -5,3 +5,5 @@ TestResults/
 *.user
 artifacts/
 .idea/
+web/studio/node_modules/
+web/studio/dist/
