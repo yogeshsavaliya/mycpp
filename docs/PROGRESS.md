@@ -1,6 +1,6 @@
 # Progress
 
-Updated 5 November 2026, 15:45 IST (Asia/Calcutta).
+Updated 5 November 2026, 15:40 IST (Asia/Calcutta).
 
 The supplied game APK is still absent. Baseline commit before this pass was `a693b08`. A local Cpp2IL sample, not that APK, was loaded instead: Unity 2022.3.35f1 `GameAssembly.dll` SHA-256 `68220f503869134ab966f9d6c2eee04d98446638f09d8cac0c7a1fe073e90b65`, metadata SHA-256 `2441635a7c234a1a34deccc6a9906d6f5abcbdab078a38b2bf488a52a4962c48`. LibCpp2IL reported 12409 methods, 11989 with addresses, 0 unresolved returns, 2468 types, 8827 fields, and 8812 field offsets. The binary is x64 PE, so no ARM64 body was lifted. Declarations from that load keep `byte[]`, `string`, `bool`, `void`, and generic `Action` spellings. Field offsets are comments, not a C# layout.
 
