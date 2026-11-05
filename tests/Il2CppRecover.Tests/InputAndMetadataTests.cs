@@ -45,6 +45,9 @@ public class InputAndMetadataTests
         Assert.True(File.Exists(Path.Combine(output, "csharp", "Assembly-CSharp.dll", "RecoveryFixtures", "ArithmeticFixture.cs")));
         var csharp = File.ReadAllText(Path.Combine(output, "csharp", "Assembly-CSharp.dll", "RecoveryFixtures", "ArithmeticFixture.cs"));
         Assert.Contains("IL2CPP_RECOVER_UNRECOVERED", csharp);
+        Assert.Contains("unresolved Add", csharp);
+        Assert.DoesNotContain("int Add", csharp);
+        Assert.DoesNotContain("int a", csharp);
         Assert.DoesNotContain("FullyRecovered", csharp);
     }
 

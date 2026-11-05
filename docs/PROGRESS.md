@@ -1,6 +1,6 @@
 # Progress
 
-Updated 5 November 2026, 13:55 IST (Asia/Calcutta).
+Updated 5 November 2026, 15:20 IST (Asia/Calcutta).
 
 ## Completed
 
@@ -82,6 +82,14 @@ cd web/studio && npm run build
 On 5 November 2026, after the web workbench: engine tests Passed 45, web tests Passed 7, solution build 0 warnings. `npm run build` wrote `web/studio/dist`. `./scripts/start-studio.sh` printed `IL2CPP Recovery Studio is ready at http://127.0.0.1:5088` and `/api/health` returned 200. Ctrl+C stopped it. `xdg-open` was not confirmed to open a window. `scripts/start-studio.ps1` was not executed.
 
 Headless Chrome and a visible Chrome window on the same machine opened `http://127.0.0.1:5088`, imported `/tmp/studio-game.apk` (the synthetic ELF, metadata v31, and `globalgamemanagers` fixture, not a Unity player), and showed job state Completed with Limitations, Unity `2022.3.62f3` from `globalgamemanagers+0x14`, assembly size “Not available”, and the notice “Method body not recovered.” The Import Package page listed APK and XAPK/APKS/APKM as supported and AAB as not available yet.
+
+The user's APK and `analysis-export` directory are not in this environment. The screenshot of `CameraShaker.cs` shows the export bug: diagnostics name `System.Collections.IEnumerator` and floating-point signatures, while the declarations are `int`. `OutputWriter` was rewriting every non-primitive and unresolved type to `int`. Declarations now keep the loader's type name, and `unresolved` stays `unresolved`. `TBZ`/`TBNZ` targets inside a slice were discarded, so an in-slice bit test was reported as a branch that leaves the method. Those targets are decoded. A caller-supplied `TBZ` of bit 0 lifts to `(value & 1) == 0` and matches the values 0, 1, 2, and 3. A `TBZ` whose target is outside the slice stays a placeholder. This was not run on the user's APK, and it is not a measurement of that APK's recovery rate.
+
+```text
+dotnet test Il2CppRecover.sln
+```
+
+Result: engine tests Passed 54, web tests Passed 7.
 
 ## Verified
 

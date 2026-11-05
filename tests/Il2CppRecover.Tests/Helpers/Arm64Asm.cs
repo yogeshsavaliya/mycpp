@@ -30,6 +30,8 @@ public static class Arm64Asm
     public static uint Bl(int byteDelta) => 0x94000000u | ((uint)(byteDelta >> 2) & 0x03FFFFFFu);
     public static uint BCond(int cond, int byteDelta) => 0x54000000u | ((((uint)(byteDelta >> 2)) & 0x7FFFFu) << 5) | (uint)cond;
     public static uint Cbz(int rt, int byteDelta) => 0x34000000u | ((((uint)(byteDelta >> 2)) & 0x7FFFFu) << 5) | (uint)rt;
+    public static uint Tbz(int rt, int bit, int byteDelta) => 0x36000000u | ((uint)(bit & 31) << 19) | ((((uint)(byteDelta >> 2)) & 0x3FFFu) << 5) | (uint)(rt & 31);
+    public static uint Tbnz(int rt, int bit, int byteDelta) => Tbz(rt, bit, byteDelta) | 0x01000000u;
     public static uint LdrW(int rt, int rn, int byteOffset) => 0xB9400000u | ((uint)(byteOffset / 4) << 10) | ((uint)rn << 5) | (uint)rt;
     public static uint StrW(int rt, int rn, int byteOffset) => 0xB9000000u | ((uint)(byteOffset / 4) << 10) | ((uint)rn << 5) | (uint)rt;
     public static uint Adrp(int rd, int immlo, int immhi) => 0x90000000u | ((uint)immlo << 29) | ((uint)immhi << 5) | (uint)rd;

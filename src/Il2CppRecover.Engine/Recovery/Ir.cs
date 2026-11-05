@@ -70,6 +70,7 @@ public sealed class ParameterContract
 {
     public required string Name { get; init; }
     public required PrimitiveKind Type { get; init; }
+    public string? DeclaredType { get; init; }
 }
 
 public sealed class FieldContract
@@ -90,6 +91,7 @@ public sealed class MethodContract
     public bool IsStatic { get; init; }
     public bool IsGeneric { get; init; }
     public PrimitiveKind ReturnType { get; init; }
+    public string? DeclaredReturnType { get; init; }
     public IReadOnlyList<ParameterContract> Parameters { get; init; } = [];
     public IReadOnlyList<FieldContract> Fields { get; init; } = [];
 }
