@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Il2CppRecover</RootNamespace>
+    <AssemblyName>Il2CppRecover.Core</AssemblyName>
+    <Description>Analysis models and recovery statuses. No UI and no upstream engine.</Description>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,35 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Il2CppRecover.Desktop.MainWindow"
+        Title="Il2CppRecover"
+        Width="1100"
+        Height="720">
+  <DockPanel Margin="12">
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8">
+      <Button Name="OpenButton" Content="Open APK" Click="OpenApk" />
+      <Button Name="AnalyzeButton" Content="Analyze" Click="Analyze" />
+      <Button Name="ExportButton" Content="Export" Click="Export" />
+      <TextBlock Name="StatusText" VerticalAlignment="Center" Text="No input loaded." />
+    </StackPanel>
+    <TextBox DockPanel.Dock="Bottom" Name="LogBox" Height="90" IsReadOnly="True" AcceptsReturn="True" />
+    <Grid ColumnDefinitions="320,*" RowDefinitions="Auto,*">
+      <StackPanel Grid.ColumnSpan="2" Spacing="2" Margin="0,8,0,8">
+        <TextBlock Name="SummaryText" TextWrapping="Wrap" />
+      </StackPanel>
+      <DockPanel Grid.Row="1">
+        <TextBox DockPanel.Dock="Top" Name="SearchBox" Watermark="Search names and recovered code" TextChanged="SearchChanged" />
+        <ListBox Name="MethodList" SelectionChanged="MethodSelected" />
+      </DockPanel>
+      <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,*" Margin="8,0,0,0">
+        <DockPanel Margin="0,0,4,0">
+          <TextBlock DockPanel.Dock="Top" Text="C# (analysis view)" FontWeight="Bold" />
+          <TextBox Name="CodeBox" IsReadOnly="True" AcceptsReturn="True" FontFamily="Consolas,monospace" />
+        </DockPanel>
+        <DockPanel Grid.Column="1" Margin="4,0,0,0">
+          <TextBlock DockPanel.Dock="Top" Text="Native instructions and diagnostics" FontWeight="Bold" />
+          <TextBox Name="NativeBox" IsReadOnly="True" AcceptsReturn="True" FontFamily="Consolas,monospace" />
+        </DockPanel>
+      </Grid>
+    </Grid>
+  </DockPanel>
+</Window>
