@@ -56,10 +56,6 @@ public static class Arm64Recoverer
         if (request.Contract.IsGeneric)
             return Incomplete(request, MethodRecoveryStatus.Unsupported, rendered, ["Generic and shared-generic method bodies are not recovered in this milestone."]);
 
-        if (request.Contract.Parameters.Any(p => p.Type is PrimitiveKind.Single or PrimitiveKind.Double) ||
-            request.Contract.ReturnType is PrimitiveKind.Single or PrimitiveKind.Double)
-            return Incomplete(request, MethodRecoveryStatus.Unsupported, rendered, ["Floating-point signatures are not recovered in this milestone."]);
-
         if (request.Contract.ReturnType is PrimitiveKind.Reference)
             return Incomplete(request, MethodRecoveryStatus.Unsupported, rendered, ["Reference returns other than the implemented field and call patterns are not recovered from the signature alone."]);
 
@@ -279,6 +275,17 @@ public static class Arm64Recoverer
             return true;
         }
 
+        if (request.Contract.ReturnType is PrimitiveKind.Single or PrimitiveKind.Double)
+        {
+            if (!state.TryGetFloat(0, out var floatSlot))
+            {
+                diagnostics.Add("The floating-point return register does not hold a lifted value.");
+                return false;
+            }
+            statements.Add(new ReturnStmt(floatSlot.Value) { Addresses = [address] });
+            return true;
+        }
+
         var width = request.Contract.ReturnType is PrimitiveKind.Int64 or PrimitiveKind.UInt64 ? 64 : 32;
         if (!state.TryGet(0, out var slot) || slot.Width < width && slot.Value is not ParamExpr)
         {
@@ -335,6 +342,10 @@ public static class Arm64Recoverer
                 return Arithmetic(insn, state, statements, locals, out error);
             case Arm64Mnemonic.CMP:
                 return Compare(insn, state, out error);
+            case Arm64Mnemonic.CSEL:
+                return Select(insn, state, statements, locals, out error);
+            case Arm64Mnemonic.FADD:
+                return FloatAdd(insn, state, statements, locals, out error);
             case Arm64Mnemonic.ADRP:
                 return Adrp(insn, state, statements, locals, out error);
             case Arm64Mnemonic.LDR:
@@ -435,6 +446,73 @@ public static class Arm64Recoverer
         state.FlagRight = right;
         state.FlagWidth = insn.Op0Reg.ToString().StartsWith('X') ? 64 : 32;
         state.FlagsValid = true;
+        return true;
+    }
+
+    private static bool Select(Arm64Instruction insn, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
+    {
+        error = "";
+        if (!TryDest(insn, out var dest, out var width))
+        {
+            error = $"0x{insn.Address:X}: CSEL destination is not a general register.";
+            return false;
+        }
+        if (!TryFlagCondition(insn.FinalOpConditionCode, state, out var condition, out error))
+            return false;
+        if (!TryOperand(insn, 1, state, out var whenTrue, out error) || !TryOperand(insn, 2, state, out var whenFalse, out error))
+            return false;
+        Write(dest, width, new ConditionalExpr(condition, whenTrue, whenFalse), state, statements, locals, insn.Address);
+        return true;
+    }
+
+    private static bool FloatAdd(Arm64Instruction insn, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
+    {
+        error = "";
+        if (!TryParseFloat(insn.Op0Reg, out var dest, out var width)
+            || !TryParseFloat(insn.Op1Reg, out var leftIndex, out _)
+            || !TryParseFloat(insn.Op2Reg, out var rightIndex, out _))
+        {
+            error = $"0x{insn.Address:X}: FADD operands are {insn.Op0Reg}, {insn.Op1Reg}, {insn.Op2Reg}. Only scalar S and D registers are lifted.";
+            return false;
+        }
+        if (!state.TryGetFloat(leftIndex, out var left) || !state.TryGetFloat(rightIndex, out var right))
+        {
+            error = $"0x{insn.Address:X}: FADD reads a floating-point register that has no lifted value.";
+            return false;
+        }
+        var type = width == 64 ? PrimitiveKind.Double : PrimitiveKind.Single;
+        state.SetFloat(dest, new BinaryExpr("+", left.Value, right.Value, type), width);
+        return true;
+    }
+
+    private static bool TryFlagCondition(Arm64ConditionCode code, RegState state, out Expr condition, out string error)
+    {
+        condition = new ConstExpr(0, PrimitiveKind.Boolean);
+        if (!state.FlagsValid || state.FlagLeft is null || state.FlagRight is null)
+        {
+            error = "The conditional select does not follow a lifted CMP.";
+            return false;
+        }
+        var signed = code is Arm64ConditionCode.EQ or Arm64ConditionCode.NE or Arm64ConditionCode.LT or Arm64ConditionCode.GT or Arm64ConditionCode.LE or Arm64ConditionCode.GE;
+        var opText = code switch
+        {
+            Arm64ConditionCode.EQ => "==",
+            Arm64ConditionCode.NE => "!=",
+            Arm64ConditionCode.LT or Arm64ConditionCode.CC => "<",
+            Arm64ConditionCode.GT or Arm64ConditionCode.HI => ">",
+            Arm64ConditionCode.LE or Arm64ConditionCode.LS => "<=",
+            Arm64ConditionCode.GE or Arm64ConditionCode.CS => ">=",
+            _ => ""
+        };
+        if (opText.Length == 0)
+        {
+            error = "Condition " + code + " is not lifted.";
+            return false;
+        }
+        if (!signed)
+            opText = "u" + opText;
+        condition = new BinaryExpr(opText, state.FlagLeft, state.FlagRight, PrimitiveKind.Boolean);
+        error = "";
         return true;
     }
 
@@ -723,6 +801,19 @@ public static class Arm64Recoverer
     private static bool TryDest(Arm64Instruction insn, out int reg, out int width) =>
         TryParseGpr(insn.Op0Reg, out reg, out width);
 
+    private static bool TryParseFloat(Arm64Register reg, out int index, out int width)
+    {
+        index = 0;
+        width = 0;
+        var name = reg.ToString();
+        if (name.Length < 2 || name[0] is not ('S' or 'D'))
+            return false;
+        if (!int.TryParse(name[1..], out index) || index is < 0 or > 31)
+            return false;
+        width = name[0] == 'D' ? 64 : 32;
+        return true;
+    }
+
     private static bool TryParseGpr(Arm64Register reg, out int index, out int width)
     {
         index = 0;
@@ -745,11 +836,21 @@ public static class Arm64Recoverer
             state.Set(0, new ThisExpr(), 64);
             start = 1;
         }
-        for (var i = 0; i < request.Contract.Parameters.Count; i++)
+        var floatReg = 0;
+        foreach (var parameter in request.Contract.Parameters)
         {
-            var parameter = request.Contract.Parameters[i];
+            if (parameter.Type is PrimitiveKind.Single or PrimitiveKind.Double)
+            {
+                var floatWidth = parameter.Type == PrimitiveKind.Double ? 64 : 32;
+                if (floatReg < 8)
+                    state.SetFloat(floatReg, new ParamExpr(parameter.Name, parameter.Type), floatWidth);
+                floatReg++;
+                continue;
+            }
             var width = parameter.Type is PrimitiveKind.Int64 or PrimitiveKind.UInt64 or PrimitiveKind.Reference ? 64 : 32;
-            state.Set(start + i, new ParamExpr(parameter.Name, parameter.Type), width);
+            if (start <= 30)
+                state.Set(start, new ParamExpr(parameter.Name, parameter.Type), width);
+            start++;
         }
         return state;
     }
@@ -1063,6 +1164,7 @@ public static class Arm64Recoverer
     private sealed class RegState
     {
         private readonly RegSlot?[] _regs = new RegSlot?[31];
+        private readonly RegSlot?[] _floats = new RegSlot?[32];
         public Expr? FlagLeft { get; set; }
         public Expr? FlagRight { get; set; }
         public int FlagWidth { get; set; }
@@ -1078,7 +1180,19 @@ public static class Arm64Recoverer
 
         public RegSlot Get(int index) => _regs[index] ?? throw new InvalidOperationException("Register is empty.");
 
-        public void Clear() => Array.Clear(_regs);
+        public void SetFloat(int index, Expr value, int width) => _floats[index] = new RegSlot { Value = value, Width = width };
+
+        public bool TryGetFloat(int index, out RegSlot slot)
+        {
+            slot = _floats[index]!;
+            return _floats[index] is not null;
+        }
+
+        public void Clear()
+        {
+            Array.Clear(_regs);
+            Array.Clear(_floats);
+        }
 
         public RegState Clone()
         {
@@ -1090,6 +1204,7 @@ public static class Arm64Recoverer
                 FlagsValid = FlagsValid
             };
             Array.Copy(_regs, copy._regs, _regs.Length);
+            Array.Copy(_floats, copy._floats, _floats.Length);
             return copy;
         }
     }

@@ -94,6 +94,42 @@ public class TypeExportTests
         Assert.Equal("int[]", CSharpEmitter.FormatDeclaredType("System.Int32[]"));
         Assert.Equal("unresolved", CSharpEmitter.FormatDeclaredType("unresolved"));
         Assert.Equal("unresolved", CSharpEmitter.FormatDeclaredType("  "));
+        Assert.Equal("byte*", CSharpEmitter.FormatDeclaredType("System.Byte*"));
+        Assert.Equal("byte[]", CSharpEmitter.FormatDeclaredType("System.Byte[]"));
+        Assert.Equal("void*", CSharpEmitter.FormatDeclaredType("System.Void*"));
+        Assert.Equal("Unity.Collections.NativeArray<System.Byte>", CSharpEmitter.FormatDeclaredType("Unity.Collections.NativeArray`1<System.Byte>"));
+    }
+
+    [Fact]
+    public void Constructors_keep_their_metadata_name_and_do_not_become_int_methods()
+    {
+        var source = CSharpEmitter.EmitType("Sample", "Ticker",
+        [
+            (new MethodContract
+            {
+                Name = ".ctor",
+                DeclaringType = "Ticker",
+                Namespace = "Sample",
+                Access = "public",
+                DeclaredReturnType = "System.Void",
+                Parameters = [new ParameterContract { Name = "value", Type = PrimitiveKind.Int32, DeclaredType = "System.Int32" }]
+            }, CSharpEmitter.Placeholder(MethodRecoveryStatus.Unsupported, ["body not recovered"]), true),
+            (new MethodContract
+            {
+                Name = "Run",
+                DeclaringType = "Ticker",
+                Namespace = "Sample",
+                Access = "private",
+                IsVirtual = true,
+                DeclaredReturnType = "System.Collections.IEnumerator",
+                Parameters = []
+            }, CSharpEmitter.Placeholder(MethodRecoveryStatus.Unsupported, ["Return type 'System.Collections.IEnumerator' is outside the lifter subset."]), true)
+        ], "UnityEngine.MonoBehaviour");
+        Assert.Contains("public class Ticker : UnityEngine.MonoBehaviour", source);
+        Assert.Contains("public Ticker(int value) // metadata method name: .ctor", source);
+        Assert.Contains("private virtual System.Collections.IEnumerator Run()", source);
+        Assert.DoesNotContain("int Run", source);
+        Assert.DoesNotContain("_ctor", source);
     }
 
     private static MethodRecord Record(string name, string returnType, string[] names, string[] types, bool isStatic, MethodRecoveryStatus status, string[] diagnostics) =>
