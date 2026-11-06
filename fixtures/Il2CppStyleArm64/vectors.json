@@ -1,0 +1,2442 @@
+{
+ "generator": "tools/fixture_vectors.py",
+ "unicorn": "2.1.4",
+ "cases": [
+  {
+   "method": "SmoothFollow",
+   "this": {
+    "count": 2,
+    "speed": -1.0,
+    "flag": 1,
+    "total": -1661378805,
+    "next": true
+   },
+   "next": {
+    "count": -1,
+    "speed": 5.0,
+    "flag": 0,
+    "total": 0,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 5,
+     "speed": -1.0,
+     "flag": 1,
+     "next": true,
+     "total": -1661378805
+    },
+    "next": {
+     "count": -1,
+     "speed": 5.0,
+     "flag": 0,
+     "next": false,
+     "total": 0
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "SmoothFollow",
+   "this": {
+    "count": 26540582,
+    "speed": 5.0,
+    "flag": 1,
+    "total": -1814739332,
+    "next": true
+   },
+   "next": {
+    "count": -368706921,
+    "speed": 1.0,
+    "flag": 1,
+    "total": -1249247098,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 53081165,
+     "speed": 5.0,
+     "flag": 1,
+     "next": true,
+     "total": -1814739332
+    },
+    "next": {
+     "count": -368706921,
+     "speed": 1.0,
+     "flag": 1,
+     "next": false,
+     "total": -1249247098
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "SmoothFollow",
+   "this": {
+    "count": -1238461443,
+    "speed": 5.0,
+    "flag": 0,
+    "total": -1314185272,
+    "next": true
+   },
+   "next": {
+    "count": -1678973855,
+    "speed": 5.0,
+    "flag": 0,
+    "total": 1,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 1818044411,
+     "speed": 5.0,
+     "flag": 0,
+     "next": true,
+     "total": -1314185272
+    },
+    "next": {
+     "count": -1678973855,
+     "speed": 5.0,
+     "flag": 0,
+     "next": false,
+     "total": 1
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "SmoothFollow",
+   "this": {
+    "count": 2,
+    "speed": 0.5,
+    "flag": 0,
+    "total": -5,
+    "next": true
+   },
+   "next": {
+    "count": 9,
+    "speed": 790.4095458984375,
+    "flag": 1,
+    "total": 9,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 5,
+     "speed": 0.5,
+     "flag": 0,
+     "next": true,
+     "total": -5
+    },
+    "next": {
+     "count": 9,
+     "speed": 790.4095458984375,
+     "flag": 1,
+     "next": false,
+     "total": 9
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "SmoothFollow",
+   "this": {
+    "count": -402934914,
+    "speed": 0.0,
+    "flag": 1,
+    "total": -103925461,
+    "next": true
+   },
+   "next": {
+    "count": 1956345875,
+    "speed": 5.0,
+    "flag": 1,
+    "total": 10,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -805869827,
+     "speed": 0.0,
+     "flag": 1,
+     "next": true,
+     "total": -103925461
+    },
+    "next": {
+     "count": 1956345875,
+     "speed": 5.0,
+     "flag": 1,
+     "next": false,
+     "total": 10
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "SmoothFollow",
+   "this": {
+    "count": -1123522114,
+    "speed": -2.5,
+    "flag": 1,
+    "total": 11,
+    "next": true
+   },
+   "next": {
+    "count": -409564015,
+    "speed": -527.585205078125,
+    "flag": 0,
+    "total": -783665031,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 2047923069,
+     "speed": -2.5,
+     "flag": 1,
+     "next": true,
+     "total": 11
+    },
+    "next": {
+     "count": -409564015,
+     "speed": -527.585205078125,
+     "flag": 0,
+     "next": false,
+     "total": -783665031
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "SmoothFollow",
+   "this": {
+    "count": -566676311,
+    "speed": -1.0,
+    "flag": 0,
+    "total": 1163561114,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -1133352621,
+     "speed": -1.0,
+     "flag": 0,
+     "next": false,
+     "total": 1163561114
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "SmoothFollow",
+   "this": {
+    "count": -1417558602,
+    "speed": -2.5,
+    "flag": 0,
+    "total": 10,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 1459850093,
+     "speed": -2.5,
+     "flag": 0,
+     "next": false,
+     "total": 10
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "LateUpdate",
+   "this": {
+    "count": -886351720,
+    "speed": 555.9663696289062,
+    "flag": 1,
+    "total": -78658185,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -1772703439,
+     "speed": 555.9663696289062,
+     "flag": 1,
+     "next": false,
+     "total": -78658185
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "LateUpdate",
+   "this": {
+    "count": -1,
+    "speed": 0.5,
+    "flag": 1,
+    "total": -1,
+    "next": true
+   },
+   "next": {
+    "count": -1,
+    "speed": 575.4452514648438,
+    "flag": 1,
+    "total": 9,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -1,
+     "speed": 0.5,
+     "flag": 1,
+     "next": true,
+     "total": -1
+    },
+    "next": {
+     "count": -1,
+     "speed": 575.4452514648438,
+     "flag": 1,
+     "next": false,
+     "total": 9
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "LateUpdate",
+   "this": {
+    "count": 1083734843,
+    "speed": 0.0,
+    "flag": 1,
+    "total": 10,
+    "next": true
+   },
+   "next": {
+    "count": 1312115099,
+    "speed": 0.0,
+    "flag": 1,
+    "total": -1,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -2127497609,
+     "speed": 0.0,
+     "flag": 1,
+     "next": true,
+     "total": 10
+    },
+    "next": {
+     "count": 1312115099,
+     "speed": 0.0,
+     "flag": 1,
+     "next": false,
+     "total": -1
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "LateUpdate",
+   "this": {
+    "count": 9,
+    "speed": -2.5,
+    "flag": 0,
+    "total": -886349926,
+    "next": true
+   },
+   "next": {
+    "count": 2,
+    "speed": 962.37255859375,
+    "flag": 1,
+    "total": -1,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 19,
+     "speed": -2.5,
+     "flag": 0,
+     "next": true,
+     "total": -886349926
+    },
+    "next": {
+     "count": 2,
+     "speed": 962.37255859375,
+     "flag": 1,
+     "next": false,
+     "total": -1
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "LateUpdate",
+   "this": {
+    "count": 9,
+    "speed": -113.06966400146484,
+    "flag": 0,
+    "total": -1,
+    "next": true
+   },
+   "next": {
+    "count": -1080420097,
+    "speed": 201.52330017089844,
+    "flag": 1,
+    "total": -654495142,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 19,
+     "speed": -113.06966400146484,
+     "flag": 0,
+     "next": true,
+     "total": -1
+    },
+    "next": {
+     "count": -1080420097,
+     "speed": 201.52330017089844,
+     "flag": 1,
+     "next": false,
+     "total": -654495142
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "LateUpdate",
+   "this": {
+    "count": -152199907,
+    "speed": -542.49609375,
+    "flag": 0,
+    "total": 10,
+    "next": true
+   },
+   "next": {
+    "count": 568459971,
+    "speed": 5.0,
+    "flag": 1,
+    "total": -2147483648,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -304399813,
+     "speed": -542.49609375,
+     "flag": 0,
+     "next": true,
+     "total": 10
+    },
+    "next": {
+     "count": 568459971,
+     "speed": 5.0,
+     "flag": 1,
+     "next": false,
+     "total": -2147483648
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Tick",
+   "this": {
+    "count": 1,
+    "speed": 468.3888854980469,
+    "flag": 1,
+    "total": -5,
+    "next": true
+   },
+   "next": {
+    "count": -449012095,
+    "speed": 580.6383666992188,
+    "flag": 0,
+    "total": 356371655,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 5,
+     "speed": 468.3888854980469,
+     "flag": 1,
+     "next": true,
+     "total": -5
+    },
+    "next": {
+     "count": -449012095,
+     "speed": 580.6383666992188,
+     "flag": 0,
+     "next": false,
+     "total": 356371655
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Tick",
+   "this": {
+    "count": -475555433,
+    "speed": 0.0,
+    "flag": 0,
+    "total": 10,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -951110863,
+     "speed": 0.0,
+     "flag": 0,
+     "next": false,
+     "total": 10
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Tick",
+   "this": {
+    "count": 2147483647,
+    "speed": 1.0,
+    "flag": 1,
+    "total": 10,
+    "next": true
+   },
+   "next": {
+    "count": 83966675,
+    "speed": 0.5,
+    "flag": 0,
+    "total": 1696973338,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 1,
+     "speed": 1.0,
+     "flag": 1,
+     "next": true,
+     "total": 10
+    },
+    "next": {
+     "count": 83966675,
+     "speed": 0.5,
+     "flag": 0,
+     "next": false,
+     "total": 1696973338
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Tick",
+   "this": {
+    "count": -1729406681,
+    "speed": -1.0,
+    "flag": 1,
+    "total": 2,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 836153937,
+     "speed": -1.0,
+     "flag": 1,
+     "next": false,
+     "total": 2
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Tick",
+   "this": {
+    "count": -1,
+    "speed": 0.0,
+    "flag": 0,
+    "total": 482468025,
+    "next": true
+   },
+   "next": {
+    "count": 9,
+    "speed": 0.5,
+    "flag": 0,
+    "total": -385112754,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 1,
+     "speed": 0.0,
+     "flag": 0,
+     "next": true,
+     "total": 482468025
+    },
+    "next": {
+     "count": 9,
+     "speed": 0.5,
+     "flag": 0,
+     "next": false,
+     "total": -385112754
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Tick",
+   "this": {
+    "count": 1598832168,
+    "speed": 1.0,
+    "flag": 0,
+    "total": -895756677,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -1097302957,
+     "speed": 1.0,
+     "flag": 0,
+     "next": false,
+     "total": -895756677
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": ".ctor",
+   "this": {
+    "count": 0,
+    "speed": 0.0,
+    "flag": 0,
+    "total": 0,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 3,
+     "speed": 5.0,
+     "flag": 0,
+     "next": false,
+     "total": 0
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": ".ctor",
+   "this": {
+    "count": 0,
+    "speed": 0.0,
+    "flag": 0,
+    "total": 0,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 3,
+     "speed": 5.0,
+     "flag": 0,
+     "next": false,
+     "total": 0
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "SumNext",
+   "this": {
+    "count": 10,
+    "speed": -69.49581146240234,
+    "flag": 1,
+    "total": 9,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 10,
+     "speed": -69.49581146240234,
+     "flag": 1,
+     "next": false,
+     "total": 9
+    },
+    "exception": "NullReferenceException"
+   }
+  },
+  {
+   "method": "SumNext",
+   "this": {
+    "count": 2147483647,
+    "speed": -2.5,
+    "flag": 0,
+    "total": 1,
+    "next": true
+   },
+   "next": {
+    "count": 11,
+    "speed": 1.0,
+    "flag": 0,
+    "total": -27237175,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 2147483647,
+     "speed": -2.5,
+     "flag": 0,
+     "next": true,
+     "total": 1
+    },
+    "next": {
+     "count": 11,
+     "speed": 1.0,
+     "flag": 0,
+     "next": false,
+     "total": -27237175
+    },
+    "x0": 2147483658,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "SumNext",
+   "this": {
+    "count": 1800470231,
+    "speed": 1.0,
+    "flag": 1,
+    "total": 0,
+    "next": true
+   },
+   "next": {
+    "count": -1635598455,
+    "speed": 313.9856872558594,
+    "flag": 0,
+    "total": -20329712,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 1800470231,
+     "speed": 1.0,
+     "flag": 1,
+     "next": true,
+     "total": 0
+    },
+    "next": {
+     "count": -1635598455,
+     "speed": 313.9856872558594,
+     "flag": 0,
+     "next": false,
+     "total": -20329712
+    },
+    "x0": 164871776,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "SumNext",
+   "this": {
+    "count": -613424847,
+    "speed": -2.5,
+    "flag": 1,
+    "total": 9,
+    "next": true
+   },
+   "next": {
+    "count": 10,
+    "speed": -1.0,
+    "flag": 0,
+    "total": 10,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -613424847,
+     "speed": -2.5,
+     "flag": 1,
+     "next": true,
+     "total": 9
+    },
+    "next": {
+     "count": 10,
+     "speed": -1.0,
+     "flag": 0,
+     "next": false,
+     "total": 10
+    },
+    "x0": 3681542459,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "SumNext",
+   "this": {
+    "count": -1,
+    "speed": 0.5,
+    "flag": 0,
+    "total": 2147483647,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -1,
+     "speed": 0.5,
+     "flag": 0,
+     "next": false,
+     "total": 2147483647
+    },
+    "exception": "NullReferenceException"
+   }
+  },
+  {
+   "method": "SumNext",
+   "this": {
+    "count": 1343797587,
+    "speed": 771.7564086914062,
+    "flag": 0,
+    "total": 2,
+    "next": true
+   },
+   "next": {
+    "count": 0,
+    "speed": -484.86053466796875,
+    "flag": 0,
+    "total": 11,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 1343797587,
+     "speed": 771.7564086914062,
+     "flag": 0,
+     "next": true,
+     "total": 2
+    },
+    "next": {
+     "count": 0,
+     "speed": -484.86053466796875,
+     "flag": 0,
+     "next": false,
+     "total": 11
+    },
+    "x0": 1343797587,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "SumNext",
+   "this": {
+    "count": -2147483648,
+    "speed": 1.0,
+    "flag": 0,
+    "total": -1,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -2147483648,
+     "speed": 1.0,
+     "flag": 0,
+     "next": false,
+     "total": -1
+    },
+    "exception": "NullReferenceException"
+   }
+  },
+  {
+   "method": "SumNext",
+   "this": {
+    "count": 1530412778,
+    "speed": -295.3950500488281,
+    "flag": 1,
+    "total": -747827535,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 1530412778,
+     "speed": -295.3950500488281,
+     "flag": 1,
+     "next": false,
+     "total": -747827535
+    },
+    "exception": "NullReferenceException"
+   }
+  },
+  {
+   "method": "SumNext",
+   "this": {
+    "count": -5,
+    "speed": 1.0,
+    "flag": 0,
+    "total": -2147483648,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -5,
+     "speed": 1.0,
+     "flag": 0,
+     "next": false,
+     "total": -2147483648
+    },
+    "exception": "NullReferenceException"
+   }
+  },
+  {
+   "method": "SumNext",
+   "this": {
+    "count": 9,
+    "speed": -691.1949462890625,
+    "flag": 0,
+    "total": 11,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 9,
+     "speed": -691.1949462890625,
+     "flag": 0,
+     "next": false,
+     "total": 11
+    },
+    "exception": "NullReferenceException"
+   }
+  },
+  {
+   "method": "SumNext",
+   "this": {
+    "count": 564443599,
+    "speed": -1.0,
+    "flag": 1,
+    "total": 16793079,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 564443599,
+     "speed": -1.0,
+     "flag": 1,
+     "next": false,
+     "total": 16793079
+    },
+    "exception": "NullReferenceException"
+   }
+  },
+  {
+   "method": "Clamp",
+   "this": {
+    "count": -1456293546,
+    "speed": -801.0032958984375,
+    "flag": 1,
+    "total": -5,
+    "next": true
+   },
+   "next": {
+    "count": 928350882,
+    "speed": -1.0,
+    "flag": 1,
+    "total": 2,
+    "next": false
+   },
+   "intArgs": [
+    9
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -1456293546,
+     "speed": -801.0032958984375,
+     "flag": 1,
+     "next": true,
+     "total": -1456293537
+    },
+    "next": {
+     "count": 928350882,
+     "speed": -1.0,
+     "flag": 1,
+     "next": false,
+     "total": 2
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Clamp",
+   "this": {
+    "count": -1,
+    "speed": -827.1649780273438,
+    "flag": 1,
+    "total": -2147483648,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [
+    -1386569627
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -1,
+     "speed": -827.1649780273438,
+     "flag": 1,
+     "next": false,
+     "total": -1
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Clamp",
+   "this": {
+    "count": 0,
+    "speed": 552.6778564453125,
+    "flag": 1,
+    "total": -1747355819,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [
+    0
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 0,
+     "speed": 552.6778564453125,
+     "flag": 1,
+     "next": false,
+     "total": 0
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Clamp",
+   "this": {
+    "count": -1,
+    "speed": -1.0,
+    "flag": 0,
+    "total": -1000863263,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [
+    0
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -1,
+     "speed": -1.0,
+     "flag": 0,
+     "next": false,
+     "total": -1
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Clamp",
+   "this": {
+    "count": -172808098,
+    "speed": -1.0,
+    "flag": 1,
+    "total": 0,
+    "next": true
+   },
+   "next": {
+    "count": 11,
+    "speed": -588.5828857421875,
+    "flag": 1,
+    "total": -2147483648,
+    "next": false
+   },
+   "intArgs": [
+    2147483647
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -172808098,
+     "speed": -1.0,
+     "flag": 1,
+     "next": true,
+     "total": -172808088
+    },
+    "next": {
+     "count": 11,
+     "speed": -588.5828857421875,
+     "flag": 1,
+     "next": false,
+     "total": -2147483648
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Clamp",
+   "this": {
+    "count": 1855237460,
+    "speed": -457.0546569824219,
+    "flag": 0,
+    "total": 1122962392,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [
+    -2147483648
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 1855237460,
+     "speed": -457.0546569824219,
+     "flag": 0,
+     "next": false,
+     "total": 1855237460
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Clamp",
+   "this": {
+    "count": 10,
+    "speed": 1.0,
+    "flag": 1,
+    "total": -2147483648,
+    "next": true
+   },
+   "next": {
+    "count": 2,
+    "speed": 1.0,
+    "flag": 0,
+    "total": 0,
+    "next": false
+   },
+   "intArgs": [
+    492786406
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 10,
+     "speed": 1.0,
+     "flag": 1,
+     "next": true,
+     "total": 20
+    },
+    "next": {
+     "count": 2,
+     "speed": 1.0,
+     "flag": 0,
+     "next": false,
+     "total": 0
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Clamp",
+   "this": {
+    "count": -1,
+    "speed": 432.6526184082031,
+    "flag": 0,
+    "total": -1,
+    "next": true
+   },
+   "next": {
+    "count": -702074367,
+    "speed": -436.4653015136719,
+    "flag": 0,
+    "total": 2,
+    "next": false
+   },
+   "intArgs": [
+    -1825749922
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -1,
+     "speed": 432.6526184082031,
+     "flag": 0,
+     "next": true,
+     "total": -1
+    },
+    "next": {
+     "count": -702074367,
+     "speed": -436.4653015136719,
+     "flag": 0,
+     "next": false,
+     "total": 2
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Clamp",
+   "this": {
+    "count": 237724204,
+    "speed": -1.0,
+    "flag": 0,
+    "total": 1599141261,
+    "next": true
+   },
+   "next": {
+    "count": -380715719,
+    "speed": -367.2571105957031,
+    "flag": 0,
+    "total": 2147483647,
+    "next": false
+   },
+   "intArgs": [
+    -411605722
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 237724204,
+     "speed": -1.0,
+     "flag": 0,
+     "next": true,
+     "total": 237724204
+    },
+    "next": {
+     "count": -380715719,
+     "speed": -367.2571105957031,
+     "flag": 0,
+     "next": false,
+     "total": 2147483647
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Clamp",
+   "this": {
+    "count": 2147483647,
+    "speed": -2.5,
+    "flag": 0,
+    "total": 2147483647,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [
+    1
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 2147483647,
+     "speed": -2.5,
+     "flag": 0,
+     "next": false,
+     "total": -2147483648
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Scaled",
+   "this": {
+    "count": -1047889788,
+    "speed": 0.5,
+    "flag": 1,
+    "total": 2147483647,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [
+    5.0
+   ],
+   "native": {
+    "this": {
+     "count": -1047889788,
+     "speed": 0.5,
+     "flag": 1,
+     "next": false,
+     "total": 2147483647
+    },
+    "x0": 1048576,
+    "s0": 2.5
+   }
+  },
+  {
+   "method": "Scaled",
+   "this": {
+    "count": 2147483647,
+    "speed": 943.4320678710938,
+    "flag": 1,
+    "total": -1,
+    "next": true
+   },
+   "next": {
+    "count": 2147483647,
+    "speed": 5.0,
+    "flag": 1,
+    "total": 1417315615,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [
+    0.0
+   ],
+   "native": {
+    "this": {
+     "count": 2147483647,
+     "speed": 943.4320678710938,
+     "flag": 1,
+     "next": true,
+     "total": -1
+    },
+    "next": {
+     "count": 2147483647,
+     "speed": 5.0,
+     "flag": 1,
+     "next": false,
+     "total": 1417315615
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Scaled",
+   "this": {
+    "count": -5,
+    "speed": 5.0,
+    "flag": 0,
+    "total": -2147483648,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [
+    5.0
+   ],
+   "native": {
+    "this": {
+     "count": -5,
+     "speed": 5.0,
+     "flag": 0,
+     "next": false,
+     "total": -2147483648
+    },
+    "x0": 1048576,
+    "s0": 25.0
+   }
+  },
+  {
+   "method": "Scaled",
+   "this": {
+    "count": 2,
+    "speed": -984.3096923828125,
+    "flag": 0,
+    "total": 2,
+    "next": true
+   },
+   "next": {
+    "count": 11,
+    "speed": 76.03712463378906,
+    "flag": 1,
+    "total": 9,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [
+    -1.0
+   ],
+   "native": {
+    "this": {
+     "count": 2,
+     "speed": -984.3096923828125,
+     "flag": 0,
+     "next": true,
+     "total": 2
+    },
+    "next": {
+     "count": 11,
+     "speed": 76.03712463378906,
+     "flag": 1,
+     "next": false,
+     "total": 9
+    },
+    "x0": 1048576,
+    "s0": 984.3096923828125
+   }
+  },
+  {
+   "method": "Scaled",
+   "this": {
+    "count": -564547764,
+    "speed": 1.0,
+    "flag": 1,
+    "total": -1201324545,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [
+    5.0
+   ],
+   "native": {
+    "this": {
+     "count": -564547764,
+     "speed": 1.0,
+     "flag": 1,
+     "next": false,
+     "total": -1201324545
+    },
+    "x0": 1048576,
+    "s0": 5.0
+   }
+  },
+  {
+   "method": "Scaled",
+   "this": {
+    "count": 386976805,
+    "speed": 330.02337646484375,
+    "flag": 1,
+    "total": 11,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [
+    -2.5
+   ],
+   "native": {
+    "this": {
+     "count": 386976805,
+     "speed": 330.02337646484375,
+     "flag": 1,
+     "next": false,
+     "total": 11
+    },
+    "x0": 1048576,
+    "s0": -825.0584716796875
+   }
+  },
+  {
+   "method": "Toggle",
+   "this": {
+    "count": 2147483647,
+    "speed": 516.7560424804688,
+    "flag": 0,
+    "total": 10,
+    "next": true
+   },
+   "next": {
+    "count": 10,
+    "speed": -107.4010238647461,
+    "flag": 1,
+    "total": 1977952110,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -1,
+     "speed": 516.7560424804688,
+     "flag": 0,
+     "next": true,
+     "total": 9
+    },
+    "next": {
+     "count": 10,
+     "speed": -107.4010238647461,
+     "flag": 1,
+     "next": false,
+     "total": 1977952110
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Toggle",
+   "this": {
+    "count": 2060076036,
+    "speed": -1.0,
+    "flag": 0,
+    "total": 716791538,
+    "next": true
+   },
+   "next": {
+    "count": 2,
+    "speed": 1.0,
+    "flag": 1,
+    "total": 10,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -174815223,
+     "speed": -1.0,
+     "flag": 0,
+     "next": true,
+     "total": 716791537
+    },
+    "next": {
+     "count": 2,
+     "speed": 1.0,
+     "flag": 1,
+     "next": false,
+     "total": 10
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Toggle",
+   "this": {
+    "count": -5,
+    "speed": 0.0,
+    "flag": 1,
+    "total": 1,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 1,
+     "speed": 0.0,
+     "flag": 1,
+     "next": false,
+     "total": 1
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Toggle",
+   "this": {
+    "count": -138979157,
+    "speed": 5.0,
+    "flag": 0,
+    "total": 10,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -277958313,
+     "speed": 5.0,
+     "flag": 0,
+     "next": false,
+     "total": 9
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Toggle",
+   "this": {
+    "count": 0,
+    "speed": -31.1739444732666,
+    "flag": 0,
+    "total": 2128488939,
+    "next": true
+   },
+   "next": {
+    "count": 1724540086,
+    "speed": 0.0,
+    "flag": 0,
+    "total": -2147483648,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 1,
+     "speed": -31.1739444732666,
+     "flag": 0,
+     "next": true,
+     "total": 2128488938
+    },
+    "next": {
+     "count": 1724540086,
+     "speed": 0.0,
+     "flag": 0,
+     "next": false,
+     "total": -2147483648
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Toggle",
+   "this": {
+    "count": -584233793,
+    "speed": 623.8040771484375,
+    "flag": 1,
+    "total": -5,
+    "next": true
+   },
+   "next": {
+    "count": 952482486,
+    "speed": 0.0,
+    "flag": 1,
+    "total": 2,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -1168467575,
+     "speed": 623.8040771484375,
+     "flag": 1,
+     "next": true,
+     "total": -5
+    },
+    "next": {
+     "count": 952482486,
+     "speed": 0.0,
+     "flag": 1,
+     "next": false,
+     "total": 2
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Toggle",
+   "this": {
+    "count": -1,
+    "speed": -1.0,
+    "flag": 1,
+    "total": 11,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 9,
+     "speed": -1.0,
+     "flag": 1,
+     "next": false,
+     "total": 11
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Toggle",
+   "this": {
+    "count": 0,
+    "speed": 5.0,
+    "flag": 0,
+    "total": 1908115044,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 1,
+     "speed": 5.0,
+     "flag": 0,
+     "next": false,
+     "total": 1908115043
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Pick",
+   "this": {
+    "count": -598317346,
+    "speed": 1.0,
+    "flag": 0,
+    "total": -5,
+    "next": true
+   },
+   "next": {
+    "count": -1,
+    "speed": -1.0,
+    "flag": 1,
+    "total": 650398356,
+    "next": false
+   },
+   "intArgs": [
+    -2147483648,
+    10
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -598317346,
+     "speed": 1.0,
+     "flag": 0,
+     "next": true,
+     "total": -5
+    },
+    "next": {
+     "count": -1,
+     "speed": -1.0,
+     "flag": 1,
+     "next": false,
+     "total": 650398356
+    },
+    "x0": 1549166302,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Pick",
+   "this": {
+    "count": 0,
+    "speed": -1.0,
+    "flag": 1,
+    "total": 1226995203,
+    "next": true
+   },
+   "next": {
+    "count": 10,
+    "speed": -133.17518615722656,
+    "flag": 1,
+    "total": 1687041510,
+    "next": false
+   },
+   "intArgs": [
+    -1696790994,
+    0
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 0,
+     "speed": -1.0,
+     "flag": 1,
+     "next": true,
+     "total": 1226995203
+    },
+    "next": {
+     "count": 10,
+     "speed": -133.17518615722656,
+     "flag": 1,
+     "next": false,
+     "total": 1687041510
+    },
+    "x0": 3499561610,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Pick",
+   "this": {
+    "count": -2147483648,
+    "speed": -443.6897888183594,
+    "flag": 0,
+    "total": 11,
+    "next": true
+   },
+   "next": {
+    "count": -1,
+    "speed": -363.1163635253906,
+    "flag": 0,
+    "total": 2,
+    "next": false
+   },
+   "intArgs": [
+    2018560519,
+    9
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -2147483648,
+     "speed": -443.6897888183594,
+     "flag": 0,
+     "next": true,
+     "total": 11
+    },
+    "next": {
+     "count": -1,
+     "speed": -363.1163635253906,
+     "flag": 0,
+     "next": false,
+     "total": 2
+    },
+    "x0": 128923138,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Pick",
+   "this": {
+    "count": 1185680678,
+    "speed": 925.3681030273438,
+    "flag": 1,
+    "total": 10,
+    "next": true
+   },
+   "next": {
+    "count": 1,
+    "speed": -1.0,
+    "flag": 0,
+    "total": -1,
+    "next": false
+   },
+   "intArgs": [
+    -109025789,
+    -1
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 1185680678,
+     "speed": 925.3681030273438,
+     "flag": 1,
+     "next": true,
+     "total": 10
+    },
+    "next": {
+     "count": 1,
+     "speed": -1.0,
+     "flag": 0,
+     "next": false,
+     "total": -1
+    },
+    "x0": 858603311,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Pick",
+   "this": {
+    "count": 10,
+    "speed": -1.0,
+    "flag": 0,
+    "total": -1569695553,
+    "next": true
+   },
+   "next": {
+    "count": 1112676053,
+    "speed": 0.0,
+    "flag": 1,
+    "total": -1055761761,
+    "next": false
+   },
+   "intArgs": [
+    -339774681,
+    410821056
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 10,
+     "speed": -1.0,
+     "flag": 0,
+     "next": true,
+     "total": -1569695553
+    },
+    "next": {
+     "count": 1112676053,
+     "speed": 0.0,
+     "flag": 1,
+     "next": false,
+     "total": -1055761761
+    },
+    "x0": 3275643263,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Pick",
+   "this": {
+    "count": -1854597076,
+    "speed": -149.56298828125,
+    "flag": 1,
+    "total": 1900401560,
+    "next": true
+   },
+   "next": {
+    "count": 11,
+    "speed": 0.5,
+    "flag": 0,
+    "total": 1890595537,
+    "next": false
+   },
+   "intArgs": [
+    11,
+    2122762912
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -1854597076,
+     "speed": -149.56298828125,
+     "flag": 1,
+     "next": true,
+     "total": 1900401560
+    },
+    "next": {
+     "count": 11,
+     "speed": 0.5,
+     "flag": 0,
+     "next": false,
+     "total": 1890595537
+    },
+    "x0": 2440370253,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Pick",
+   "this": {
+    "count": 10,
+    "speed": 0.0,
+    "flag": 0,
+    "total": 2122953940,
+    "next": true
+   },
+   "next": {
+    "count": 1775491504,
+    "speed": 0.5,
+    "flag": 0,
+    "total": -400246042,
+    "next": false
+   },
+   "intArgs": [
+    9,
+    2147483647
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 10,
+     "speed": 0.0,
+     "flag": 0,
+     "next": true,
+     "total": 2122953940
+    },
+    "next": {
+     "count": 1775491504,
+     "speed": 0.5,
+     "flag": 0,
+     "next": false,
+     "total": -400246042
+    },
+    "x0": 37,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "Pick",
+   "this": {
+    "count": 2147483647,
+    "speed": 5.0,
+    "flag": 1,
+    "total": -1,
+    "next": true
+   },
+   "next": {
+    "count": 2,
+    "speed": -2.5,
+    "flag": 1,
+    "total": 731650661,
+    "next": false
+   },
+   "intArgs": [
+    1,
+    2147483647
+   ],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 2147483647,
+     "speed": 5.0,
+     "flag": 1,
+     "next": true,
+     "total": -1
+    },
+    "next": {
+     "count": 2,
+     "speed": -2.5,
+     "flag": 1,
+     "next": false,
+     "total": 731650661
+    },
+    "x0": 2147483650,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "NextTotal",
+   "this": {
+    "count": 2,
+    "speed": 815.5914306640625,
+    "flag": 1,
+    "total": 2,
+    "next": true
+   },
+   "next": {
+    "count": -2147483648,
+    "speed": -1.0,
+    "flag": 0,
+    "total": 9,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 2,
+     "speed": 815.5914306640625,
+     "flag": 1,
+     "next": true,
+     "total": 2
+    },
+    "next": {
+     "count": -2147483648,
+     "speed": -1.0,
+     "flag": 0,
+     "next": false,
+     "total": 9
+    },
+    "x0": 9,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "NextTotal",
+   "this": {
+    "count": -2147483648,
+    "speed": 0.5,
+    "flag": 1,
+    "total": 10,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -2147483648,
+     "speed": 0.5,
+     "flag": 1,
+     "next": false,
+     "total": 10
+    },
+    "exception": "NullReferenceException"
+   }
+  },
+  {
+   "method": "NextTotal",
+   "this": {
+    "count": 1873709785,
+    "speed": -237.3567352294922,
+    "flag": 1,
+    "total": 9,
+    "next": true
+   },
+   "next": {
+    "count": 1930977250,
+    "speed": 1.0,
+    "flag": 1,
+    "total": -378106053,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 1873709785,
+     "speed": -237.3567352294922,
+     "flag": 1,
+     "next": true,
+     "total": 9
+    },
+    "next": {
+     "count": 1930977250,
+     "speed": 1.0,
+     "flag": 1,
+     "next": false,
+     "total": -378106053
+    },
+    "x0": 3916861243,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "NextTotal",
+   "this": {
+    "count": 2,
+    "speed": 0.5,
+    "flag": 0,
+    "total": -2147483648,
+    "next": true
+   },
+   "next": {
+    "count": 10,
+    "speed": -2.5,
+    "flag": 0,
+    "total": -1099917766,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 2,
+     "speed": 0.5,
+     "flag": 0,
+     "next": true,
+     "total": -2147483648
+    },
+    "next": {
+     "count": 10,
+     "speed": -2.5,
+     "flag": 0,
+     "next": false,
+     "total": -1099917766
+    },
+    "x0": 3195049530,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "NextTotal",
+   "this": {
+    "count": -1606466579,
+    "speed": -2.5,
+    "flag": 0,
+    "total": 1372807471,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -1606466579,
+     "speed": -2.5,
+     "flag": 0,
+     "next": false,
+     "total": 1372807471
+    },
+    "exception": "NullReferenceException"
+   }
+  },
+  {
+   "method": "NextTotal",
+   "this": {
+    "count": 10,
+    "speed": -86.75171661376953,
+    "flag": 0,
+    "total": 2147483647,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 10,
+     "speed": -86.75171661376953,
+     "flag": 0,
+     "next": false,
+     "total": 2147483647
+    },
+    "exception": "NullReferenceException"
+   }
+  },
+  {
+   "method": "CopyToNext",
+   "this": {
+    "count": 10,
+    "speed": 0.5,
+    "flag": 1,
+    "total": 9,
+    "next": true
+   },
+   "next": {
+    "count": 1,
+    "speed": -433.5664978027344,
+    "flag": 1,
+    "total": 0,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 10,
+     "speed": 0.5,
+     "flag": 1,
+     "next": true,
+     "total": 9
+    },
+    "next": {
+     "count": 10,
+     "speed": -433.5664978027344,
+     "flag": 1,
+     "next": false,
+     "total": 0
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "CopyToNext",
+   "this": {
+    "count": 0,
+    "speed": 0.0,
+    "flag": 0,
+    "total": 1,
+    "next": true
+   },
+   "next": {
+    "count": 0,
+    "speed": 319.8135986328125,
+    "flag": 1,
+    "total": 0,
+    "next": false
+   },
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 0,
+     "speed": 0.0,
+     "flag": 0,
+     "next": true,
+     "total": 1
+    },
+    "next": {
+     "count": 0,
+     "speed": 319.8135986328125,
+     "flag": 1,
+     "next": false,
+     "total": 0
+    },
+    "x0": 1048576,
+    "s0": 0.0
+   }
+  },
+  {
+   "method": "CopyToNext",
+   "this": {
+    "count": -5,
+    "speed": -1.0,
+    "flag": 1,
+    "total": -426683369,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": -5,
+     "speed": -1.0,
+     "flag": 1,
+     "next": false,
+     "total": -426683369
+    },
+    "exception": "NullReferenceException"
+   }
+  },
+  {
+   "method": "CopyToNext",
+   "this": {
+    "count": 9,
+    "speed": -438.54296875,
+    "flag": 0,
+    "total": -5,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 9,
+     "speed": -438.54296875,
+     "flag": 0,
+     "next": false,
+     "total": -5
+    },
+    "exception": "NullReferenceException"
+   }
+  },
+  {
+   "method": "CopyToNext",
+   "this": {
+    "count": 10,
+    "speed": 223.20590209960938,
+    "flag": 0,
+    "total": -1,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 10,
+     "speed": 223.20590209960938,
+     "flag": 0,
+     "next": false,
+     "total": -1
+    },
+    "exception": "NullReferenceException"
+   }
+  },
+  {
+   "method": "CopyToNext",
+   "this": {
+    "count": 9,
+    "speed": 275.1138916015625,
+    "flag": 1,
+    "total": 0,
+    "next": false
+   },
+   "next": null,
+   "intArgs": [],
+   "floatArgs": [],
+   "native": {
+    "this": {
+     "count": 9,
+     "speed": 275.1138916015625,
+     "flag": 1,
+     "next": false,
+     "total": 0
+    },
+    "exception": "NullReferenceException"
+   }
+  }
+ ]
+}

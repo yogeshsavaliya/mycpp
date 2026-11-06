@@ -45,7 +45,12 @@ public enum BoundaryEvidence
     CallerSuppliedSlice,
     EndsWithReturn,
     NextMethodAddressOnly,
-    Uncertain
+    Uncertain,
+    /// <summary>
+    /// Recursive descent from the entry reached only RET, a tail call to a known method entry,
+    /// or a call with noreturn evidence, and never crossed the next known entry.
+    /// </summary>
+    ControlFlowClosed
 }
 
 public enum MethodKind

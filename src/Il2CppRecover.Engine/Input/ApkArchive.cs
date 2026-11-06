@@ -81,7 +81,9 @@ public static class ApkArchive
             diagnostics.Add("Neither libil2cpp.so nor a Managed assembly directory was found.");
         if (metadata is { SuspectedProtection: true })
             diagnostics.Add(metadata.Note ?? "Metadata did not have the IL2CPP magic number.");
-        if (selected is { Architecture: not NativeArchitecture.Arm64 } && selected.Elf)
+        if (selected is { Elf: false })
+            diagnostics.Add(selected.Note ?? "The selected native file is not an ELF image. ARM64 little-endian ELF is the only binary the lifter reads.");
+        else if (selected is { Architecture: not NativeArchitecture.Arm64 })
             diagnostics.Add($"Selected ABI '{selected.Abi}' is {selected.Architecture}. ARM64 little-endian is the only architecture with a recovery lifter in this milestone.");
 
         var succeeded = !fatal && backend == ScriptingBackend.Il2Cpp && metadata is { MagicValid: true } && selected is { Architecture: NativeArchitecture.Arm64, LittleEndian: true, Is64Bit: true };

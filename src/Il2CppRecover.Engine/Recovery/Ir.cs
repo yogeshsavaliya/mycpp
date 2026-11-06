@@ -2,7 +2,34 @@ namespace Il2CppRecover.Recovery;
 
 public abstract record Expr(PrimitiveKind Type)
 {
+    /// <summary>Metadata type name of a reference-typed value, when known.</summary>
+    public string? RefType { get; init; }
     public virtual string Describe() => ToString() ?? Type.ToString();
+}
+
+public sealed record CastExpr(Expr Value, PrimitiveKind Target) : Expr(Target)
+{
+    public override string Describe() => $"({Target}){Value.Describe()}";
+}
+
+public sealed record FloatConstExpr(double Value, PrimitiveKind FloatType) : Expr(FloatType)
+{
+    public override string Describe() => Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+}
+
+public sealed record OpaqueExpr(string Tag) : Expr(PrimitiveKind.UInt64)
+{
+    public override string Describe() => "<" + Tag + ">";
+}
+
+public sealed record StackAddrExpr(long Offset) : Expr(PrimitiveKind.UInt64)
+{
+    public override string Describe() => $"<sp{(Offset < 0 ? "-" : "+")}0x{Math.Abs(Offset):X}>";
+}
+
+public sealed record FieldAddrExpr(Expr Base, long Offset) : Expr(PrimitiveKind.UInt64)
+{
+    public override string Describe() => $"&({Base.Describe()} + 0x{Offset:X})";
 }
 
 public sealed record ParamExpr(string Name, PrimitiveKind Type) : Expr(Type)
@@ -42,7 +69,10 @@ public sealed record FieldExpr(Expr? Instance, string Name, PrimitiveKind Type) 
 
 public sealed record CallExpr(string Name, IReadOnlyList<Expr> Args, PrimitiveKind Type) : Expr(Type)
 {
-    public override string Describe() => $"{Name}({string.Join(", ", Args.Select(a => a.Describe()))})";
+    public Expr? Receiver { get; init; }
+    public string? StaticType { get; init; }
+    public ulong? Target { get; init; }
+    public override string Describe() => (Receiver is null ? StaticType is null ? "" : StaticType + "." : Receiver.Describe() + ".") + $"{Name}({string.Join(", ", Args.Select(a => a.Describe()))})";
 }
 
 public sealed record ConditionalExpr(Expr Condition, Expr WhenTrue, Expr WhenFalse) : Expr(WhenTrue.Type)
@@ -63,8 +93,10 @@ public abstract record Stmt
 public sealed record ReturnStmt(Expr? Value) : Stmt;
 public sealed record AssignStmt(string Local, Expr Value) : Stmt;
 public sealed record StoreFieldStmt(Expr? Instance, string Field, Expr Value) : Stmt;
-public sealed record IfStmt(Expr Condition, IReadOnlyList<Stmt> WhenTrue, IReadOnlyList<Stmt> WhenFalse) : Stmt;
-public sealed record WhileStmt(Expr Condition, IReadOnlyList<Stmt> Body) : Stmt;
+public sealed record IfStmt(Expr Condition, List<Stmt> WhenTrue, List<Stmt> WhenFalse) : Stmt;
+public sealed record WhileStmt(Expr Condition, List<Stmt> Body) : Stmt;
+public sealed record ThrowStmt(string ExceptionType, string Evidence) : Stmt;
+public sealed record CtorInitializerStmt(bool IsBase, IReadOnlyList<Expr> Args) : Stmt;
 
 public sealed class ParameterContract
 {
@@ -99,6 +131,8 @@ public sealed class MethodContract
     public string? DeclaredReturnType { get; init; }
     public IReadOnlyList<ParameterContract> Parameters { get; init; } = [];
     public IReadOnlyList<FieldContract> Fields { get; init; } = [];
+    /// <summary>When set, a call to this method is not lifted. The reason names the missing ABI fact.</summary>
+    public string? UnsupportedReason { get; init; }
 }
 
 public sealed class RecoveryRequest
@@ -108,7 +142,14 @@ public sealed class RecoveryRequest
     public required MethodContract Contract { get; init; }
     public BoundaryEvidence Boundary { get; init; } = BoundaryEvidence.CallerSuppliedSlice;
     public IReadOnlyDictionary<ulong, MethodContract>? CallTargets { get; init; }
+    public CodeSpace? Space { get; init; }
+    public IReadOnlyDictionary<string, IReadOnlyList<FieldContract>>? TypeFields { get; init; }
+    public IReadOnlyDictionary<ulong, RuntimeHelper>? RuntimeHelpers { get; init; }
 }
+
+public enum RuntimeHelperKind { RaiseNullReferenceException }
+
+public sealed record RuntimeHelper(RuntimeHelperKind Kind, string Evidence);
 
 public sealed class MethodBodyResult
 {
@@ -120,4 +161,7 @@ public sealed class MethodBodyResult
     public string? CandidateCSharp { get; init; }
     public IReadOnlyList<ProvenanceLink> Provenance { get; init; } = [];
     public IReadOnlyList<Stmt> Statements { get; init; } = [];
+    public BoundaryEvidence Boundary { get; init; } = BoundaryEvidence.NotApplicable;
+    public string Engine { get; init; } = "";
+    public string? ThunkChain { get; init; }
 }

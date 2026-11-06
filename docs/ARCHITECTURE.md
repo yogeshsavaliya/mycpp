@@ -26,7 +26,7 @@ Pinned NuGet packages, matching the Cpp2IL tag `2022.1.0-pre-release.21`, commit
 
 At that commit, `AsmResolverDllOutputFormatIlRecovery.FillMethodBody` emits `ldnull; throw` for managed methods that have bodies. `NewArmV8InstructionSet` drops intra-method unconditional `B` and reports `CMP` as not implemented. Method bounds often come from the next function start. Those paths are not used as recovered C#.
 
-Disarm decodes ARM64. Our `Arm64Recoverer` builds a control-flow graph and lifts only the shapes listed in `docs/SUPPORT.md`. ILSpy is not integrated: there is no recovered managed IL to decompile. C# is emitted from our statements.
+Disarm renders the instruction listing. Semantics come from `A64Decoder`, which reads the raw A64 encoding. `FunctionDiscovery` walks the method by recursive descent, using the next known method entry only as an upper bound. `StructuredLifter` lifts that function. `Arm64Recoverer.Recover` emits a body only when that walk is closed. The older shape matcher remains as the loop fallback. ILSpy is not integrated: there is no recovered managed IL to decompile. C# is emitted from our statements.
 
 LibCpp2IL keeps process-wide statics (`LibCpp2IlMain.TheMetadata` and friends). Tests disable xUnit parallelization. Do not call the catalog reader and the native loader concurrently.
 
@@ -42,7 +42,7 @@ Unity version detection reads the C string at `globalgamemanagers` offset `0x14`
 
 Each method keeps assembly, namespace, declaring type, signature, metadata token and index when known, native virtual address and file offset when mapped, boundary evidence, instructions, diagnostics, placeholder or lifted C#, and provenance ranges when a lift produced statements.
 
-`BoundaryEvidence.NextMethodAddressOnly` never becomes `RecoveredUnvalidated`. A successful lift of that slice is stored in `CandidateCSharp`, the exported body is a throwing placeholder, and the status is `PartiallyRecovered`.
+A body becomes `RecoveredUnvalidated` only with `BoundaryEvidence.ControlFlowClosed`: every reachable path ends in `RET`, a tail call to a known method entry, or a call with noreturn evidence, and no path crosses the next known entry. An unidentified noreturn helper stays `PartiallyRecovered`; its text is `CandidateCSharp` and the exported body is a throwing placeholder. The legacy loop path still refuses a slice whose only bound is the next method address.
 
 `FullyRecoveredUniqueBodies` counts distinct native addresses whose status is `RecoveredUnvalidated` and whose C# is not a placeholder. Abstract, external, metadata-only, placeholder, and duplicate shared rows are outside that numerator. `Compilation` and `Behaviour` stay `NotChecked` unless a later pass sets them. The APK pipeline does not set them from a lift.
 
@@ -50,7 +50,7 @@ Each method keeps assembly, namespace, declaring type, signature, metadata token
 
 Ghidra 11 is Apache-2.0 and was not installed for this revision. A headless run was not used as the C# generator. The user's ARM64 APK is not in this environment, so there is no same-binary measurement of Ghidra's boundaries against our lifter. Decompiler pseudocode is not converted into C# with text replacement.
 
-The C# generator remains `Arm64Recoverer`. It now lifts Clang 18.1.3 `-O1` `add`, `csel` `max`, and scalar `fadd` from the bytes Clang emitted, and those results were executed. Clang's strength-reduced `sum_to` uses `SUBS`, `UMULL`, and `LSR` and stays a placeholder. That comparison is compiler output, not an IL2CPP player.
+The C# generator is `StructuredLifter` behind `Arm64Recoverer.Recover`. `fixtures/Il2CppStyleArm64` is hand-written C++ in an IL2CPP calling shape, compiled by clang 18.1.3 for `aarch64-linux-gnu`. It is not Unity output. All 11 methods recovered and matched native execution on 77 Unicorn vectors. Clang's strength-reduced `sum_to` uses `SUBS`, `UMULL`, and `LSR` and stays a placeholder.
 
 LibCpp2IL remains the metadata and address source. On the pinned loader, the Cpp2IL sample `GameAssembly.dll` for Unity 2022.3.35f1 (x64 PE, not ARM64) produced resolved signatures and field offsets. Those bodies are not lifted, because the lifter reads ARM64 only.
 

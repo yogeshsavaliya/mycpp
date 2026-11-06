@@ -97,7 +97,7 @@ public class TypeExportTests
         Assert.Equal("byte*", CSharpEmitter.FormatDeclaredType("System.Byte*"));
         Assert.Equal("byte[]", CSharpEmitter.FormatDeclaredType("System.Byte[]"));
         Assert.Equal("void*", CSharpEmitter.FormatDeclaredType("System.Void*"));
-        Assert.Equal("Unity.Collections.NativeArray<System.Byte>", CSharpEmitter.FormatDeclaredType("Unity.Collections.NativeArray`1<System.Byte>"));
+        Assert.Equal("Unity.Collections.NativeArray<byte>", CSharpEmitter.FormatDeclaredType("Unity.Collections.NativeArray`1<System.Byte>"));
     }
 
     [Fact]
@@ -130,6 +130,63 @@ public class TypeExportTests
         Assert.Contains("private virtual System.Collections.IEnumerator Run()", source);
         Assert.DoesNotContain("int Run", source);
         Assert.DoesNotContain("_ctor", source);
+    }
+
+    [Fact]
+    public void Nested_enum_is_declared_inside_its_type()
+    {
+        var catalog = new MetadataCatalog
+        {
+            Images =
+            [
+                new CatalogImage
+                {
+                    Name = "Assembly-CSharp.dll",
+                    Types =
+                    [
+                        new CatalogType { Name = "BoostersController", Namespace = "Sample", MetadataIndex = 1 },
+                        new CatalogType { Name = "BoosterTypes", Namespace = "", MetadataIndex = 2, IsEnum = true, IsValueType = true, DeclaringTypeIndex = 1 },
+                        new CatalogType { Name = "Button", Namespace = "Sample", MetadataIndex = 3 }
+                    ]
+                }
+            ]
+        };
+        var types = new List<EngineTypeInfo>
+        {
+            new() { MetadataIndex = 1, Image = "Assembly-CSharp.dll", Namespace = "Sample", Name = "BoostersController", BaseType = "UnityEngine.MonoBehaviour" },
+            new()
+            {
+                MetadataIndex = 2, Image = "Assembly-CSharp.dll", Namespace = "", Name = "BoosterTypes", BaseType = "System.Enum", IsEnum = true, IsValueType = true,
+                Fields =
+                [
+                    new EngineFieldInfo { Name = "value__", Type = "System.Int32", Access = "public", Offset = 0x10 },
+                    new EngineFieldInfo { Name = "Speed", Type = "Sample.BoostersController+BoosterTypes", Access = "public", IsStatic = true, IsLiteral = true, ConstantValue = 0 },
+                    new EngineFieldInfo { Name = "Shield", Type = "Sample.BoostersController+BoosterTypes", Access = "public", IsStatic = true, IsLiteral = true, ConstantValue = -1 }
+                ]
+            },
+            new()
+            {
+                MetadataIndex = 3, Image = "Assembly-CSharp.dll", Namespace = "Sample", Name = "Button", BaseType = "UnityEngine.MonoBehaviour",
+                Fields = [new EngineFieldInfo { Name = "kind", Type = "Sample.BoostersController+BoosterTypes", Access = "public", Offset = 0x18 }]
+            }
+        };
+        var method = new MethodRecord
+        {
+            Assembly = "Assembly-CSharp.dll", Namespace = "Sample", DeclaringType = "Button", TypeMetadataIndex = 3,
+            Name = "Use", Signature = "", ReturnTypeName = "System.Void",
+            ParameterNames = ["type"], ParameterTypeNames = ["Sample.BoostersController+BoosterTypes"],
+            Access = "public", Status = MethodRecoveryStatus.Unsupported,
+            CSharp = CSharpEmitter.Placeholder(MethodRecoveryStatus.Unsupported, ["test"]), CSharpIsPlaceholder = true
+        };
+        var root = Path.Combine(Path.GetTempPath(), "il2cpp-nested-" + Guid.NewGuid().ToString("N"));
+        OutputWriter.Write(root, Inventory(), catalog, [method], Report(), [], null, types);
+        var controller = File.ReadAllText(Path.Combine(root, "csharp", "Assembly-CSharp.dll", "Sample", "BoostersController.cs"));
+        var button = File.ReadAllText(Path.Combine(root, "csharp", "Assembly-CSharp.dll", "Sample", "Button.cs"));
+        Assert.Contains("public enum BoosterTypes", controller);
+        Assert.Contains("Shield = -1,", controller);
+        Assert.Contains("public Sample.BoostersController.BoosterTypes kind;", button);
+        Assert.Contains("public void Use(Sample.BoostersController.BoosterTypes type)", button);
+        Assert.DoesNotContain("+", button.Split('\n').Where(l => !l.TrimStart().StartsWith("//")).Aggregate("", (a, b) => a + "\n" + b));
     }
 
     private static MethodRecord Record(string name, string returnType, string[] names, string[] types, bool isStatic, MethodRecoveryStatus status, string[] diagnostics) =>

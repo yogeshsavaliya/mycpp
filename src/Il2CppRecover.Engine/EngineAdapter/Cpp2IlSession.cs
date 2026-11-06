@@ -27,6 +27,7 @@ public sealed class EngineMethod
 
 public sealed class EngineTypeInfo
 {
+    public int MetadataIndex { get; init; } = -1;
     public required string Image { get; init; }
     public required string Namespace { get; init; }
     public required string Name { get; init; }
@@ -45,6 +46,8 @@ public sealed class EngineFieldInfo
     public string Access { get; init; } = "unresolved";
     public bool IsStatic { get; init; }
     public int? Offset { get; init; }
+    public object? ConstantValue { get; init; }
+    public bool IsLiteral { get; init; }
 }
 
 /// <summary>
@@ -103,8 +106,23 @@ public static class Cpp2IlSession
                             {
                                 offset = null;
                             }
+                            object? constant = null;
+                            var isLiteral = (attr & System.Reflection.FieldAttributes.Literal) != 0;
+                            if (isLiteral)
+                            {
+                                try
+                                {
+                                    constant = field.DefaultValue?.Value;
+                                }
+                                catch (Exception)
+                                {
+                                    constant = null;
+                                }
+                            }
                             fields.Add(new EngineFieldInfo
                             {
+                                ConstantValue = constant,
+                                IsLiteral = isLiteral,
                                 Name = field.Name ?? "",
                                 Type = field.FieldType?.ToString() ?? "unresolved",
                                 Access = Metadata.MetadataNames.Access((int)attr & 7),
@@ -121,6 +139,7 @@ public static class Cpp2IlSession
                         }
                         types.Add(new EngineTypeInfo
                         {
+                            MetadataIndex = type.TypeIndex.IsNonNull ? type.TypeIndex.Value : -1,
                             Image = image.Name ?? "",
                             Namespace = type.Namespace ?? "",
                             Name = type.Name ?? "",
