@@ -89,6 +89,19 @@ public static class MetadataCatalogReader
                             Methods = methods
                         });
                     }
+                    for (var typeOrdinal = 0; typeOrdinal < imageTypes.Length; typeOrdinal++)
+                    {
+                        var parent = imageTypes[typeOrdinal];
+                        if (parent.NestedTypeCount <= 0)
+                            continue;
+                        var parentIndex = image.firstTypeIndex.Value + typeOrdinal;
+                        foreach (var childIndex in parsed.GetNestedTypeIndicesFromIndexAndCount(parent.NestedTypesStart, parent.NestedTypeCount))
+                        {
+                            var child = types.FirstOrDefault(t => t.MetadataIndex == childIndex);
+                            if (child is not null)
+                                child.DeclaringTypeIndex = parentIndex;
+                        }
+                    }
                     images.Add(new CatalogImage { Name = image.Name ?? "", Types = types });
                 }
 

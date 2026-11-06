@@ -123,3 +123,13 @@ Result: engine tests Passed 54, web tests Passed 7.
 ## Next implementation step
 
 Build the fixture in `fixtures/Unity2022.3.62f3` with Unity 2022.3.62f3, Android ARM64, IL2CPP, and keep `global-metadata.dat` plus `libil2cpp.so`. Point `analyze` at that APK. For one small method, record the native address LibCpp2IL returns, the file offset, and the bytes. Lift only if those bytes match a supported shape; otherwise add the missing instruction pattern with a new regression test whose expected result comes from the fixture source, and leave the method `Unsupported` until that test exists.
+
+## 2026-11-06 17:03 IST — structured lifter, measured on a clang fixture
+
+The 0.3.0 pipeline passed `NextMethodAddressOnly` for every APK method and then demoted every successful lift of that slice to a placeholder. Tail calls and single-instruction thunks were rejected, and a null-check cold block that ends in a noreturn call was not a closed function. Those paths are now handled by `FunctionDiscovery` and `StructuredLifter`. A body is `RecoveredUnvalidated` only when control flow is closed.
+
+`fixtures/Il2CppStyleArm64` was compiled here with clang 18.1.3, target `aarch64-linux-gnu`, and checked against Unicorn 2.1.4. All 11 methods recovered. All 77 vectors matched the native return, fields, and exception kind. SHA-256 of `libfixture.so` is `978fbde755eb5522b3d992cc38468f454106d3ac32c1210c3bed92d6576fc3c3`. This fixture is hand-written C++ in an IL2CPP calling shape. It is not Unity output and not a game.
+
+`dotnet test Il2CppRecover.sln` on SDK 9.0.320 / net9.0: Il2CppRecover.Tests passed 69, Il2CppRecover.Web.Tests passed 7.
+
+The user's APK was not on this machine. The only real Unity IL2CPP binary here is the Cpp2IL sample for 2022.3.35f1, an x64 PE `GameAssembly.dll`. Packaged with its `global-metadata.dat` and `globalgamemanagers`, `analyze` read Unity `2022.3.35f1` from `globalgamemanagers+0x30`, header 31, layout 31.1, and 12,409 methods. The native file is not an ELF, so the loader was not run and `FullyRecoveredUniqueBodies` is 0. No result is claimed for BodypartController, BoosterButtonController, or CameraShaker.

@@ -25,7 +25,162 @@ public static class Arm64Recoverer
         }
     }
 
+    /// <summary>
+    /// Discovers the function by recursive descent and lifts it. The legacy shape matcher runs
+    /// only when the graph contains a loop, and it keeps the next-address boundary rule.
+    /// A body is recovered only when discovery reports closed control flow.
+    /// </summary>
     public static MethodBodyResult Recover(RecoveryRequest request)
+    {
+        if (request.Code.Length == 0)
+            return Fail(request, "The method slice is empty.", []);
+        if (request.Code.Length % 4 != 0)
+            return Fail(request, "The ARM64 slice length is not a multiple of 4.", []);
+        var rendered = Disassemble(request.Code, request.VirtualAddress).ToList();
+        if (request.Contract.IsGeneric)
+            return Incomplete(request, MethodRecoveryStatus.Unsupported, rendered, ["Generic and shared-generic method bodies are not recovered in this milestone."]);
+
+        var space = request.Space ?? CodeSpace.ForSlice(request.Code, request.VirtualAddress);
+        var fn = FunctionDiscovery.Discover(space, request.VirtualAddress);
+        var listing = ListingFor(fn, rendered);
+        string? thunkChain = null;
+        if (fn.Instructions.Count == 1 && fn.TailCalls.Count == 1)
+        {
+            var only = fn.Instructions.Values.First();
+            thunkChain = "0x" + only.Address.ToString("X") + " -> 0x" + only.Target.ToString("X");
+            if (request.CallTargets is not null && !request.CallTargets.ContainsKey(only.Target))
+            {
+                var resolution = FunctionDiscovery.ResolveThunk(space, only.Target, a => request.CallTargets.ContainsKey(a));
+                thunkChain = "0x" + only.Address.ToString("X") + " -> " + resolution.Describe();
+            }
+        }
+
+        var outcome = StructuredLifter.Lift(request, fn);
+        if (outcome.HasLoop)
+        {
+            var legacy = LegacyRecover(request);
+            var notes = legacy.Diagnostics.ToList();
+            notes.Insert(0, "The control-flow graph has a loop; the structured lifter does not structure loops, so the legacy single-loop matcher was tried.");
+            return new MethodBodyResult
+            {
+                Status = legacy.Status,
+                Diagnostics = notes,
+                Instructions = legacy.Instructions,
+                CSharp = legacy.CSharp,
+                CSharpIsPlaceholder = legacy.CSharpIsPlaceholder,
+                CandidateCSharp = legacy.CandidateCSharp,
+                Provenance = legacy.Provenance,
+                Statements = legacy.Statements,
+                Boundary = request.Boundary,
+                Engine = "legacy-shape"
+            };
+        }
+
+        var diagnostics = new List<string>();
+        diagnostics.AddRange(fn.Issues);
+        diagnostics.AddRange(outcome.Diagnostics);
+        if (outcome.Statements is null || !fn.ControlFlowClosed)
+        {
+            if (diagnostics.Count == 0)
+                diagnostics.Add("The structured lifter produced no body.");
+            if (thunkChain is not null)
+                diagnostics.Insert(0, "Kind: thunk " + thunkChain);
+            var status = diagnostics.Any(d => d.Contains("failed", StringComparison.OrdinalIgnoreCase))
+                ? MethodRecoveryStatus.Failed
+                : MethodRecoveryStatus.Unsupported;
+            return new MethodBodyResult
+            {
+                Status = status,
+                Diagnostics = diagnostics,
+                Instructions = listing,
+                CSharp = CSharpEmitter.Placeholder(status, diagnostics),
+                CSharpIsPlaceholder = true,
+                Boundary = fn.ControlFlowClosed ? BoundaryEvidence.ControlFlowClosed : request.Boundary,
+                Engine = "structured",
+                ThunkChain = thunkChain
+            };
+        }
+
+        var evidence = outcome.Evidence.Concat(fn.Evidence).ToList();
+        if (thunkChain is not null)
+            evidence.Insert(0, "Direct thunk: " + thunkChain + ".");
+        evidence.Insert(0, "Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.");
+        string? body = null;
+        string? emitError = null;
+        try
+        {
+            body = CSharpEmitter.EmitBody(outcome.Statements);
+        }
+        catch (UnemittableException ex)
+        {
+            emitError = ex.Message;
+        }
+
+        if (outcome.CandidateOnly || emitError is not null)
+        {
+            var notes = diagnostics.ToList();
+            if (emitError is not null)
+                notes.Add("No verified C# was emitted: " + emitError + ".");
+            notes.AddRange(evidence.Select(e => "Evidence: " + e));
+            return new MethodBodyResult
+            {
+                Status = MethodRecoveryStatus.PartiallyRecovered,
+                Diagnostics = notes,
+                Instructions = listing,
+                CSharp = CSharpEmitter.Placeholder(MethodRecoveryStatus.PartiallyRecovered, notes),
+                CSharpIsPlaceholder = true,
+                CandidateCSharp = CSharpEmitter.EmitCandidateBody(outcome.Statements),
+                Provenance = Provenance(outcome.Statements),
+                Statements = outcome.Statements,
+                Boundary = BoundaryEvidence.ControlFlowClosed,
+                Engine = "structured",
+                ThunkChain = thunkChain
+            };
+        }
+
+        diagnostics.AddRange(evidence.Select(e => "Evidence: " + e));
+        return new MethodBodyResult
+        {
+            Status = MethodRecoveryStatus.RecoveredUnvalidated,
+            Diagnostics = diagnostics,
+            Instructions = listing,
+            CSharp = body,
+            CSharpIsPlaceholder = false,
+            Provenance = Provenance(outcome.Statements),
+            Statements = outcome.Statements,
+            Boundary = BoundaryEvidence.ControlFlowClosed,
+            Engine = "structured",
+            ThunkChain = thunkChain
+        };
+    }
+
+    private static List<NativeInstruction> ListingFor(DiscoveredFunction fn, List<NativeInstruction> sliceListing)
+    {
+        if (fn.Instructions.Count == 0)
+            return sliceListing;
+        var byAddress = sliceListing.ToDictionary(i => i.Address);
+        var list = new List<NativeInstruction>();
+        foreach (var op in fn.Instructions.Values)
+        {
+            var key = "0x" + op.Address.ToString("X");
+            if (byAddress.TryGetValue(key, out var existing))
+            {
+                list.Add(existing);
+                continue;
+            }
+            var bytes = BitConverter.GetBytes(op.Word);
+            list.Add(new NativeInstruction
+            {
+                Address = key,
+                Bytes = Convert.ToHexString(bytes).ToLowerInvariant(),
+                Text = Disassemble(bytes, op.Address).FirstOrDefault()?.Text ?? op.Kind.ToString()
+            });
+        }
+        return list;
+    }
+
+    /// <summary>The original shape matcher, used for the single while-loop shape.</summary>
+    public static MethodBodyResult LegacyRecover(RecoveryRequest request)
     {
         if (request.Code.Length == 0)
             return Fail(request, "The method slice is empty.", []);
@@ -1210,6 +1365,9 @@ public static class Arm64Recoverer
     }
 }
 
-public sealed record DeclareStmt(string Local, PrimitiveKind Type, Expr Value) : Stmt;
+public sealed record DeclareStmt(string Local, PrimitiveKind Type, Expr Value) : Stmt
+{
+    public string? TypeName { get; init; }
+}
 
 public sealed record ExpressionStmt(Expr Value) : Stmt;

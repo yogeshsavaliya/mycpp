@@ -1,0 +1,54 @@
+{
+  "Fixture_SmoothFollow_m": {
+    "address": 66048,
+    "size": 20
+  },
+  "Fixture_LateUpdate_m": {
+    "address": 66068,
+    "size": 4
+  },
+  "Fixture_Tick_m": {
+    "address": 66072,
+    "size": 16
+  },
+  "Fixture__ctor_m": {
+    "address": 66088,
+    "size": 16
+  },
+  "Fixture_SumNext_m": {
+    "address": 66104,
+    "size": 36
+  },
+  "Fixture_Clamp_m": {
+    "address": 66140,
+    "size": 32
+  },
+  "Fixture_Scaled_m": {
+    "address": 66172,
+    "size": 12
+  },
+  "Fixture_Toggle_m": {
+    "address": 66184,
+    "size": 44
+  },
+  "Fixture_Pick_m": {
+    "address": 66228,
+    "size": 24
+  },
+  "Fixture_NextTotal_m": {
+    "address": 66252,
+    "size": 28
+  },
+  "Fixture_CopyToNext_m": {
+    "address": 66280,
+    "size": 32
+  },
+  "MonoBehaviour__ctor_m": {
+    "address": 66312,
+    "size": 4
+  },
+  "il2cpp_codegen_raise_null_reference_exception": {
+    "address": 66316,
+    "size": 4
+  }
+}

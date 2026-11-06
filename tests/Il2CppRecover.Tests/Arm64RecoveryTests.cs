@@ -164,15 +164,31 @@ public class Arm64RecoveryTests
             ReturnType = PrimitiveKind.Int32,
             Parameters = [new ParameterContract { Name = "a", Type = PrimitiveKind.Int32 }, new ParameterContract { Name = "b", Type = PrimitiveKind.Int32 }]
         };
+        // stp x29, x30, [sp, #-16]! ; mov x29, sp ; bl Add ; ldp x29, x30, [sp], #16 ; ret
         var result = Arm64Recoverer.Recover(new RecoveryRequest
         {
-            Code = Arm64Asm.Words(Arm64Asm.Bl(0x1000), Arm64Asm.Ret()),
+            Code = Arm64Asm.Words(0xA9BF7BFD, 0x910003FD, Arm64Asm.Bl(0x1000 - 8), 0xA8C17BFD, Arm64Asm.Ret()),
             VirtualAddress = Base,
             Contract = Binary("CallAdd"),
             CallTargets = new Dictionary<ulong, MethodContract> { [0x2000] = callee }
         });
         Assert.Equal(MethodRecoveryStatus.RecoveredUnvalidated, result.Status);
         Assert.Contains("Add(a, b)", result.CSharp);
+    }
+
+    [Fact]
+    public void Call_without_saving_the_link_register_is_not_lifted_as_a_return()
+    {
+        var result = Arm64Recoverer.Recover(new RecoveryRequest
+        {
+            Code = Arm64Asm.Words(Arm64Asm.Bl(0x1000), Arm64Asm.Ret()),
+            VirtualAddress = Base,
+            Contract = Binary("CallAdd"),
+            CallTargets = new Dictionary<ulong, MethodContract> { [0x2000] = new MethodContract { Name = "Add", DeclaringType = "ArithmeticFixture", IsStatic = true, ReturnType = PrimitiveKind.Int32, Parameters = [new ParameterContract { Name = "a", Type = PrimitiveKind.Int32 }, new ParameterContract { Name = "b", Type = PrimitiveKind.Int32 }] } }
+        });
+        Assert.NotEqual(MethodRecoveryStatus.RecoveredUnvalidated, result.Status);
+        Assert.True(result.CSharpIsPlaceholder);
+        Assert.Contains("return address", string.Join(" ", result.Diagnostics));
     }
 
     [Fact]
@@ -186,18 +202,34 @@ public class Arm64RecoveryTests
     }
 
     [Fact]
-    public void Next_method_boundary_is_not_promoted_to_recovered()
+    public void Next_method_boundary_alone_is_not_promoted_to_recovered()
     {
         var result = Arm64Recoverer.Recover(new RecoveryRequest
         {
-            Code = Arm64Asm.Words(Arm64Asm.Movz(0, 7), Arm64Asm.Ret()),
+            Code = Arm64Asm.Words(Arm64Asm.Movz(0, 7)),
             VirtualAddress = Base,
             Contract = Method("Constant", PrimitiveKind.Int32, true),
             Boundary = BoundaryEvidence.NextMethodAddressOnly
         });
-        Assert.Equal(MethodRecoveryStatus.PartiallyRecovered, result.Status);
+        Assert.NotEqual(MethodRecoveryStatus.RecoveredUnvalidated, result.Status);
         Assert.True(result.CSharpIsPlaceholder);
-        Assert.Contains("7", result.CandidateCSharp);
+        Assert.Contains("falls through past", string.Join(" ", result.Diagnostics));
+    }
+
+    [Fact]
+    public void Closed_control_flow_is_the_boundary_evidence_not_the_next_address()
+    {
+        var result = Arm64Recoverer.Recover(new RecoveryRequest
+        {
+            Code = Arm64Asm.Words(Arm64Asm.Movz(0, 7), Arm64Asm.Ret(), 0xD503201F, 0xD503201F),
+            VirtualAddress = Base,
+            Contract = Method("Constant", PrimitiveKind.Int32, true),
+            Boundary = BoundaryEvidence.NextMethodAddressOnly
+        });
+        Assert.Equal(MethodRecoveryStatus.RecoveredUnvalidated, result.Status);
+        Assert.Equal(BoundaryEvidence.ControlFlowClosed, result.Boundary);
+        Assert.Equal(2, result.Instructions.Count);
+        Assert.Contains("return 7;", result.CSharp);
     }
 
     [Theory]

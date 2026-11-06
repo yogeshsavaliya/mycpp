@@ -136,6 +136,8 @@ public sealed class CatalogType
     public uint Token { get; init; }
     public bool IsValueType { get; init; }
     public bool IsEnum { get; init; }
+    /// <summary>Metadata index of the declaring type for a nested type.</summary>
+    public int? DeclaringTypeIndex { get; set; }
     public IReadOnlyList<CatalogField> Fields { get; init; } = [];
     public IReadOnlyList<CatalogMethod> Methods { get; init; } = [];
 }
@@ -177,6 +179,8 @@ public sealed class MethodRecord
     public required string DeclaringType { get; init; }
     public required string Name { get; init; }
     public required string Signature { get; init; }
+    /// <summary>Metadata index of the declaring type. Names alone are not unique for nested types.</summary>
+    public int? TypeMetadataIndex { get; init; }
     public string ReturnTypeName { get; init; } = "unresolved";
     public IReadOnlyList<string> ParameterNames { get; init; } = [];
     public IReadOnlyList<string> ParameterTypeNames { get; init; } = [];
@@ -220,6 +224,20 @@ public sealed class RecoveryCounts
     public required string Denominator { get; init; }
 }
 
+public sealed class StageBreakdown
+{
+    public required string Scope { get; init; }
+    public IReadOnlyList<string> Assemblies { get; init; } = [];
+    public int MethodsDiscovered { get; init; }
+    public int MappedToNativeCode { get; init; }
+    public int Disassembled { get; init; }
+    public int CandidateBodies { get; init; }
+    public int EmittedWithoutPlaceholder { get; init; }
+    public int PassedCompilationCheck { get; init; }
+    public int PassedBehaviouralCheck { get; init; }
+    public IReadOnlyDictionary<string, int> UnrecoveredByReason { get; init; } = new Dictionary<string, int>();
+}
+
 public sealed class RecoveryReport
 {
     public required string ToolName { get; init; }
@@ -231,6 +249,8 @@ public sealed class RecoveryReport
     public required string PinnedLibCpp2Il { get; init; }
     public required string PinnedDisarm { get; init; }
     public required RecoveryCounts Counts { get; init; }
+    public string BuildIdentity { get; init; } = "";
+    public IReadOnlyList<StageBreakdown> Breakdown { get; init; } = [];
     public required string BehaviouralValidation { get; init; }
     public required IReadOnlyList<string> Limitations { get; init; }
 }
