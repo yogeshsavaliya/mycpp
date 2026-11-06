@@ -15,6 +15,7 @@ public static class StructuredLifter
         public List<string> Evidence { get; } = [];
         public bool HasLoop { get; init; }
         public bool CandidateOnly { get; set; }
+        public int BlockCount { get; init; }
     }
 
     public static Outcome Lift(RecoveryRequest request, DiscoveredFunction fn)
@@ -26,8 +27,14 @@ public static class StructuredLifter
             return blocked;
         }
         var blocks = BuildBlocks(fn, out var blockAt);
-        if (HasCycle(blocks, blockAt))
-            return new Outcome { HasLoop = true };
+        if (HasCycle(blocks, blockAt, request))
+            return new Outcome { HasLoop = true, BlockCount = blocks.Count };
+        if (blocks.Count > request.Budget.MaxBlocks)
+        {
+            var limited = new Outcome { BlockCount = blocks.Count };
+            limited.Diagnostics.Add($"AnalysisBudgetExceeded: {blocks.Count} basic blocks exceeds the limit of {request.Budget.MaxBlocks}.");
+            return limited;
+        }
         var ctx = new Ctx(request, fn, blocks, blockAt);
         try
         {
@@ -35,15 +42,15 @@ public static class StructuredLifter
             var body = ctx.EmitRegion(blockAt[fn.Entry], null, ctx.InitialState(), out var fallsOff);
             if (fallsOff is not null)
                 throw new LiftException("A path reaches the end of the structured region without a return.");
-            Cleanup.Run(body);
-            var ok = new Outcome { Statements = body, CandidateOnly = ctx.CandidateOnly };
+            Cleanup.Run(body, ctx.Check);
+            var ok = new Outcome { Statements = body, CandidateOnly = ctx.CandidateOnly, BlockCount = blocks.Count };
             ok.Diagnostics.AddRange(ctx.Notes);
             ok.Evidence.AddRange(ctx.EvidenceNotes);
             return ok;
         }
         catch (LiftException ex)
         {
-            var failed = new Outcome();
+            var failed = new Outcome { BlockCount = blocks.Count };
             failed.Diagnostics.Add(ex.Message);
             failed.Evidence.AddRange(ctx.EvidenceNotes);
             return failed;
@@ -138,23 +145,46 @@ public static class StructuredLifter
         return blocks;
     }
 
-    private static bool HasCycle(List<Block> blocks, Dictionary<ulong, Block> blockAt)
+    private static bool HasCycle(List<Block> blocks, Dictionary<ulong, Block> blockAt, RecoveryRequest request)
     {
-        var color = new Dictionary<ulong, int>();
-        bool Visit(ulong a)
-        {
-            if (!blockAt.ContainsKey(a))
-                return false;
-            if (color.TryGetValue(a, out var c))
-                return c == 1;
-            color[a] = 1;
-            foreach (var s in blockAt[a].Succ)
-                if (Visit(s))
-                    return true;
-            color[a] = 2;
+        if (blocks.Count == 0)
             return false;
+        var color = new Dictionary<ulong, int>();
+        var stack = new Stack<(ulong Addr, bool Exit)>();
+        stack.Push((blocks[0].Start, false));
+        var steps = 0;
+        while (stack.Count > 0)
+        {
+            if ((++steps & 255) == 0)
+                CheckRequest(request);
+            var (address, exit) = stack.Pop();
+            if (!blockAt.ContainsKey(address))
+                continue;
+            if (exit)
+            {
+                color[address] = 2;
+                continue;
+            }
+            if (color.TryGetValue(address, out var seen))
+            {
+                if (seen == 1)
+                    return true;
+                continue;
+            }
+            color[address] = 1;
+            stack.Push((address, true));
+            var succs = blockAt[address].Succ;
+            for (var i = succs.Count - 1; i >= 0; i--)
+                stack.Push((succs[i], false));
         }
-        return blocks.Count > 0 && Visit(blocks[0].Start);
+        return false;
+    }
+
+    private static void CheckRequest(RecoveryRequest request)
+    {
+        request.CancellationToken.ThrowIfCancellationRequested();
+        if (request.DeadlineTimestamp is long deadline && System.Diagnostics.Stopwatch.GetTimestamp() >= deadline)
+            throw new AnalysisLimitException(MethodRecoveryStatus.TimedOut, "TimedOut: this method exceeded its analysis deadline before a body was recovered.");
     }
 
     internal sealed class Slot
@@ -195,6 +225,7 @@ public static class StructuredLifter
         private readonly Dictionary<ulong, ulong?> _ipdom = [];
         private int _temp;
         private int _emitted;
+        private long _nextPulse;
         private readonly string _selfType;
         public readonly List<string> Notes = [];
         public readonly List<string> EvidenceNotes = [];
@@ -211,42 +242,88 @@ public static class StructuredLifter
 
         private static string Qualified(string ns, string type) => string.IsNullOrEmpty(ns) ? type : ns + "." + type;
 
+        public void Check()
+        {
+            CheckRequest(_req);
+            if (_req.Pulse is null)
+                return;
+            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (now < _nextPulse)
+                return;
+            _nextPulse = now + System.Diagnostics.Stopwatch.Frequency / 4;
+            _req.Pulse.Invoke();
+        }
+
         public void ComputePostDominators()
         {
             var order = new List<ulong>();
             var seen = new HashSet<ulong>();
-            void Dfs(ulong a)
+            var stack = new Stack<(ulong Addr, bool Exit)>();
+            stack.Push((_fn.Entry, false));
+            var steps = 0;
+            while (stack.Count > 0)
             {
-                if (!seen.Add(a) || !_blockAt.ContainsKey(a))
-                    return;
-                foreach (var s in _blockAt[a].Succ)
-                    Dfs(s);
-                order.Add(a);
-            }
-            Dfs(_fn.Entry);
-            var chain = new Dictionary<ulong, List<ulong>>();
-            foreach (var a in order)
-            {
-                var succs = _blockAt[a].Succ.Where(_blockAt.ContainsKey).ToList();
-                if (succs.Count == 0)
+                if ((++steps & 255) == 0)
+                    Check();
+                var (address, exit) = stack.Pop();
+                if (!_blockAt.ContainsKey(address))
+                    continue;
+                if (exit)
                 {
-                    chain[a] = [a];
-                    _ipdom[a] = null;
+                    order.Add(address);
                     continue;
                 }
-                IEnumerable<ulong> common = chain[succs[0]];
-                foreach (var s in succs.Skip(1))
+                if (!seen.Add(address))
+                    continue;
+                stack.Push((address, true));
+                var succs = _blockAt[address].Succ;
+                for (var i = succs.Count - 1; i >= 0; i--)
+                    stack.Push((succs[i], false));
+            }
+            _postorder = new Dictionary<ulong, int>(order.Count);
+            for (var i = 0; i < order.Count; i++)
+                _postorder[order[i]] = i;
+            foreach (var address in order)
+            {
+                if ((++steps & 255) == 0)
+                    Check();
+                var succs = new List<ulong>();
+                foreach (var successor in _blockAt[address].Succ)
                 {
-                    var other = chain[s].ToHashSet();
-                    common = common.Where(other.Contains).ToList();
+                    if (_blockAt.ContainsKey(successor))
+                        succs.Add(successor);
                 }
-                var commonList = common.ToList();
-                _ipdom[a] = commonList.Count == 0 ? null : commonList[0];
-                var next = new List<ulong> { a };
-                next.AddRange(commonList);
-                chain[a] = next;
+                if (succs.Count == 0)
+                {
+                    _ipdom[address] = null;
+                    continue;
+                }
+                ulong? immediate = succs[0];
+                for (var i = 1; i < succs.Count; i++)
+                    immediate = Intersect(immediate, succs[i]);
+                _ipdom[address] = immediate;
             }
         }
+
+        private Dictionary<ulong, int> _postorder = [];
+
+        private ulong? Intersect(ulong? left, ulong? right)
+        {
+            var guard = 0;
+            var limit = _postorder.Count + 2;
+            while (left != right)
+            {
+                if (left is null || right is null || ++guard > limit)
+                    return null;
+                if (_postorder[left.Value] > _postorder[right.Value])
+                    left = Parent(left.Value);
+                else
+                    right = Parent(right.Value);
+            }
+            return left;
+        }
+
+        private ulong? Parent(ulong address) => _ipdom.TryGetValue(address, out var parent) ? parent : null;
 
         public State InitialState()
         {
@@ -287,70 +364,124 @@ public static class StructuredLifter
 
         private static int WidthOf(PrimitiveKind k) => k is PrimitiveKind.Int64 or PrimitiveKind.UInt64 or PrimitiveKind.Reference ? 64 : 32;
 
+        private enum RegionPhase { Emit, Join }
+
+        private sealed class RegionFrame
+        {
+            public required Block Block;
+            public ulong? Stop;
+            public required State State;
+            public List<Stmt> Stmts = [];
+            public State? FallsOff;
+            public RegionPhase Phase;
+            public int Arm;
+            public Expr? Condition;
+            public ulong? Merge;
+            public ulong TermAddress;
+            public RegionFrame? Taken;
+            public RegionFrame? Fall;
+        }
+
         public List<Stmt> EmitRegion(Block start, ulong? stop, State st, out State? fallsOff)
         {
-            var stmts = new List<Stmt>();
-            var block = start;
-            while (true)
+            var root = new RegionFrame { Block = start, Stop = stop, State = st };
+            var stack = new Stack<RegionFrame>();
+            stack.Push(root);
+            var guard = _blocks.Count + 8;
+            while (stack.Count > 0)
             {
-                if (stop is not null && block.Start == stop.Value)
+                if (stack.Count > guard)
+                    throw new LiftException("AnalysisBudgetExceeded: structuring nesting exceeded the number of basic blocks.");
+                var frame = stack.Peek();
+                if (frame.Phase == RegionPhase.Join)
                 {
-                    fallsOff = st;
-                    return stmts;
+                    if (frame.Arm == 0)
+                    {
+                        frame.Arm = 1;
+                        stack.Push(frame.Fall!);
+                        continue;
+                    }
+                    if (FinishCond(frame))
+                        stack.Pop();
+                    else
+                        frame.Phase = RegionPhase.Emit;
+                    continue;
                 }
+                if (frame.Stop is ulong stopAt && frame.Block.Start == stopAt)
+                {
+                    frame.FallsOff = frame.State;
+                    stack.Pop();
+                    continue;
+                }
+                Check();
                 if (++_emitted > _blocks.Count * 8 + 64)
                     throw new LiftException("Structuring would duplicate too much shared code; this control-flow graph is not structured.");
+                var block = frame.Block;
                 foreach (var op in block.Body)
-                    LiftOne(op, st, stmts);
+                    LiftOne(op, frame.State, frame.Stmts);
                 switch (block.Kind)
                 {
                     case TermKind.Ret:
-                        EmitReturn(block.Term!, st, stmts);
-                        fallsOff = null;
-                        return stmts;
+                        EmitReturn(block.Term!, frame.State, frame.Stmts);
+                        frame.FallsOff = null;
+                        stack.Pop();
+                        break;
                     case TermKind.TailCall:
-                        EmitTailCall(block.Term!, st, stmts);
-                        fallsOff = null;
-                        return stmts;
+                        EmitTailCall(block.Term!, frame.State, frame.Stmts);
+                        frame.FallsOff = null;
+                        stack.Pop();
+                        break;
                     case TermKind.NoReturn:
-                        EmitNoReturn(block, st, stmts);
-                        fallsOff = null;
-                        return stmts;
+                        EmitNoReturn(block, frame.State, frame.Stmts);
+                        frame.FallsOff = null;
+                        stack.Pop();
+                        break;
                     case TermKind.Trap:
                         if (block.Term is null)
                             throw new LiftException($"0x{block.Start:X}: the path from this block has no lifted end. " + string.Join(" ", _fn.Issues));
                         throw new LiftException($"0x{block.Term.Address:X}: a trap instruction (BRK/UDF/HLT) is reached; no C# equivalent is invented.");
                     case TermKind.Jump:
                     case TermKind.Fall:
-                        block = Next(block.Next);
-                        continue;
+                        frame.Block = Next(block.Next);
+                        break;
                     case TermKind.Cond:
-                    {
-                        var condition = BranchCondition(block.Term!, st);
-                        var merge = _ipdom.TryGetValue(block.Start, out var m) ? m : null;
-                        var takenState = st.Clone();
-                        var fallState = st.Clone();
-                        var taken = EmitRegion(Next(block.Taken), merge, takenState, out var takenEnd);
-                        var fall = EmitRegion(Next(block.Next), merge, fallState, out var fallEnd);
-                        if (takenEnd is null && fallEnd is null)
-                        {
-                            stmts.Add(new IfStmt(condition, taken, fall) { Addresses = [block.Term!.Address] });
-                            fallsOff = null;
-                            return stmts;
-                        }
-                        State merged = takenEnd is null ? fallEnd! : fallEnd is null ? takenEnd : Merge(takenEnd, fallEnd, taken, fall, stmts, block.Term!.Address);
-                        if (taken.Count == 0 && fall.Count > 0)
-                            stmts.Add(new IfStmt(Simplifier.Not(condition), fall, new List<Stmt>()) { Addresses = [block.Term!.Address] });
-                        else if (taken.Count > 0 || fall.Count > 0)
-                            stmts.Add(new IfStmt(condition, taken, fall) { Addresses = [block.Term!.Address] });
-                        if (merge is null)
-                            throw new LiftException($"0x{block.Term!.Address:X}: a branch arm continues but the arms have no common continuation.");
-                        st = merged;
-                        block = Next(merge.Value);
-                        continue;
-                    }
+                        frame.Condition = BranchCondition(block.Term!, frame.State);
+                        frame.Merge = _ipdom.TryGetValue(block.Start, out var merge) ? merge : null;
+                        frame.TermAddress = block.Term!.Address;
+                        frame.Taken = new RegionFrame { Block = Next(block.Taken), Stop = frame.Merge, State = frame.State.Clone() };
+                        frame.Fall = new RegionFrame { Block = Next(block.Next), Stop = frame.Merge, State = frame.State.Clone() };
+                        frame.Phase = RegionPhase.Join;
+                        frame.Arm = 0;
+                        stack.Push(frame.Taken);
+                        break;
                 }
             }
+            fallsOff = root.FallsOff;
+            return root.Stmts;
+        }
+
+        private bool FinishCond(RegionFrame frame)
+        {
+            var taken = frame.Taken!;
+            var fall = frame.Fall!;
+            var takenEnd = taken.FallsOff;
+            var fallEnd = fall.FallsOff;
+            if (takenEnd is null && fallEnd is null)
+            {
+                frame.Stmts.Add(new IfStmt(frame.Condition!, taken.Stmts, fall.Stmts) { Addresses = [frame.TermAddress] });
+                frame.FallsOff = null;
+                return true;
+            }
+            var merged = takenEnd is null ? fallEnd! : fallEnd is null ? takenEnd : Merge(takenEnd, fallEnd, taken.Stmts, fall.Stmts, frame.Stmts, frame.TermAddress);
+            if (taken.Stmts.Count == 0 && fall.Stmts.Count > 0)
+                frame.Stmts.Add(new IfStmt(Simplifier.Not(frame.Condition!), fall.Stmts, []) { Addresses = [frame.TermAddress] });
+            else if (taken.Stmts.Count > 0 || fall.Stmts.Count > 0)
+                frame.Stmts.Add(new IfStmt(frame.Condition!, taken.Stmts, fall.Stmts) { Addresses = [frame.TermAddress] });
+            if (frame.Merge is null)
+                throw new LiftException($"0x{frame.TermAddress:X}: a branch arm continues but the arms have no common continuation.");
+            frame.State = merged;
+            frame.Block = Next(frame.Merge.Value);
+            return false;
         }
 
         private Block Next(ulong address) =>

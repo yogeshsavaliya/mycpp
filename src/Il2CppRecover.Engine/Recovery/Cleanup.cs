@@ -94,11 +94,14 @@ public static class Simplifier
 /// </summary>
 public static class Cleanup
 {
-    public static void Run(List<Stmt> body)
+    public static void Run(List<Stmt> body, Action? check = null)
     {
         for (var pass = 0; pass < 8; pass++)
         {
-            var changed = Inline(body, body);
+            check?.Invoke();
+            var counts = new Dictionary<string, int>();
+            CountReads(body, counts);
+            var changed = Inline(body, counts, check);
             changed |= RemoveDead(body);
             if (!changed)
                 break;
@@ -123,24 +126,49 @@ public static class Cleanup
                 counts[l.Name] = counts.GetValueOrDefault(l.Name) + 1;
     }
 
-    public static IEnumerable<Expr> Walk(Expr e)
+    public static IEnumerable<Expr> Walk(Expr root)
     {
-        yield return e;
-        IEnumerable<Expr> kids = e switch
+        var stack = new Stack<Expr>();
+        stack.Push(root);
+        while (stack.Count > 0)
         {
-            BinaryExpr b => [b.Left, b.Right],
-            UnaryExpr u => [u.Value],
-            CastExpr c => [c.Value],
-            FieldExpr { Instance: not null } f => [f.Instance],
-            CallExpr call => call.Receiver is null ? call.Args : call.Args.Prepend(call.Receiver),
-            ConditionalExpr ce => [ce.Condition, ce.WhenTrue, ce.WhenFalse],
-            FieldAddrExpr fa => [fa.Base],
-            SelectedOffsetExpr so => [so.Base, so.Condition],
-            _ => []
-        };
-        foreach (var k in kids)
-            foreach (var x in Walk(k))
-                yield return x;
+            var e = stack.Pop();
+            yield return e;
+            switch (e)
+            {
+                case BinaryExpr b:
+                    stack.Push(b.Right);
+                    stack.Push(b.Left);
+                    break;
+                case UnaryExpr u:
+                    stack.Push(u.Value);
+                    break;
+                case CastExpr c:
+                    stack.Push(c.Value);
+                    break;
+                case FieldExpr { Instance: not null } f:
+                    stack.Push(f.Instance);
+                    break;
+                case CallExpr call:
+                    for (var i = call.Args.Count - 1; i >= 0; i--)
+                        stack.Push(call.Args[i]);
+                    if (call.Receiver is not null)
+                        stack.Push(call.Receiver);
+                    break;
+                case ConditionalExpr ce:
+                    stack.Push(ce.WhenFalse);
+                    stack.Push(ce.WhenTrue);
+                    stack.Push(ce.Condition);
+                    break;
+                case FieldAddrExpr fa:
+                    stack.Push(fa.Base);
+                    break;
+                case SelectedOffsetExpr so:
+                    stack.Push(so.Condition);
+                    stack.Push(so.Base);
+                    break;
+            }
+        }
     }
 
     public static IEnumerable<Expr> TopExprs(Stmt s) => s switch
@@ -168,49 +196,81 @@ public static class Cleanup
 
     private static bool HasCall(Expr e) => Walk(e).Any(x => x is CallExpr);
 
-    private static bool Inline(List<Stmt> list, List<Stmt> root)
+    private static bool Inline(List<Stmt> list, Dictionary<string, int> counts, Action? check)
     {
         var changed = false;
         foreach (var s in list)
             foreach (var child in Children(s))
-                changed |= Inline(child, root);
+                changed |= Inline(child, counts, check);
 
-        var counts = new Dictionary<string, int>();
-        CountReads(root, counts);
+        var firstTop = new Dictionary<string, int>();
+        var firstChild = new Dictionary<string, int>();
+        for (var k = 0; k < list.Count; k++)
+        {
+            if ((k & 63) == 0)
+                check?.Invoke();
+            foreach (var name in TopLocals(list[k]))
+                firstTop.TryAdd(name, k);
+            foreach (var child in Children(list[k]))
+            {
+                foreach (var name in LocalsIn(child))
+                    firstChild.TryAdd(name, k);
+            }
+        }
         for (var i = 0; i < list.Count; i++)
         {
+            if ((i & 63) == 0)
+                check?.Invoke();
             if (list[i] is not DeclareStmt d || !d.Local.StartsWith('t') || d.Value is DefaultExpr)
                 continue;
             if (counts.GetValueOrDefault(d.Local) != 1)
                 continue;
-            var j = -1;
-            for (var k = i + 1; k < list.Count; k++)
-            {
-                if (TopExprs(list[k]).Any(e => Walk(e).Any(x => x is LocalExpr l && l.Name == d.Local)))
-                {
-                    j = k;
-                    break;
-                }
-                if (Children(list[k]).Any(c => Mentions(c, d.Local)))
-                    break;
-            }
-            if (j < 0 || !SafeToMove(d.Value, list, i, j))
+            if (!firstTop.TryGetValue(d.Local, out var j) || j <= i)
+                continue;
+            if (firstChild.TryGetValue(d.Local, out var childAt) && childAt > i && childAt < j)
+                continue;
+            if (!SafeToMove(d.Value, list, i, j))
                 continue;
             list[j] = Replace(list[j], d.Local, d.Value);
             list.RemoveAt(i);
+            Shift(firstTop, i);
+            Shift(firstChild, i);
             i--;
             changed = true;
-            counts.Clear();
-            CountReads(root, counts);
+            counts[d.Local] = counts.GetValueOrDefault(d.Local) - 1;
         }
         return changed;
     }
 
-    private static bool Mentions(List<Stmt> stmts, string name)
+    private static void Shift(Dictionary<string, int> map, int removed)
+    {
+        foreach (var key in map.Keys.ToArray())
+        {
+            var index = map[key];
+            if (index == removed)
+                map.Remove(key);
+            else if (index > removed)
+                map[key] = index - 1;
+        }
+    }
+
+    private static IEnumerable<string> TopLocals(Stmt statement)
+    {
+        foreach (var expression in TopExprs(statement))
+        {
+            foreach (var node in Walk(expression))
+            {
+                if (node is LocalExpr local)
+                    yield return local.Name;
+            }
+        }
+    }
+
+    private static IEnumerable<string> LocalsIn(List<Stmt> stmts)
     {
         var counts = new Dictionary<string, int>();
         CountReads(stmts, counts);
-        return counts.ContainsKey(name);
+        return counts.Keys;
     }
 
     private static bool SafeToMove(Expr value, List<Stmt> list, int from, int to)

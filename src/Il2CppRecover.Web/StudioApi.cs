@@ -56,7 +56,7 @@ public static class StudioApi
             body ??= new SettingsBody();
             if (!string.IsNullOrWhiteSpace(body.DefaultAbi) && !AbiPattern.IsMatch(body.DefaultAbi.Trim()))
                 return Results.BadRequest(new { errors = new[] { "ABI may contain letters, numbers, hyphens, and underscores." } });
-            var saved = database.SaveSettings(body.Theme ?? "light", body.TimeoutSeconds, body.DefaultAbi ?? "arm64-v8a");
+            var saved = database.SaveSettings(body.Theme ?? "light", body.TimeoutSeconds, body.DefaultAbi ?? "arm64-v8a", body.BodyScope);
             return Results.Ok(SettingsDto(saved, options));
         });
 
@@ -260,7 +260,7 @@ public static class StudioApi
             {
                 assemblies,
                 sizeExplanation = "Metadata names these assemblies. They are not stored as DLL files in the package, so no file size is shown.",
-                scope = "Analyze Project reads the whole package. Assembly-scoped analysis is not available."
+                scope = "Metadata is read for every assembly. Gameplay-first body analysis is selected in Settings and leaves framework bodies unanalyzed."
             });
         });
 
@@ -462,6 +462,9 @@ public static class StudioApi
         MethodRecoveryStatus.Disassembled => "Disassembled",
         MethodRecoveryStatus.CompilationChecked => "Compilation Checked",
         MethodRecoveryStatus.BehaviourCheckedOnFixtures => "Behaviour Checked On Fixtures",
+        MethodRecoveryStatus.AnalysisBudgetExceeded => "Budget Exceeded",
+        MethodRecoveryStatus.TimedOut => "Timed Out",
+        MethodRecoveryStatus.NotAnalyzed => "Not Analyzed",
         _ => "Unknown"
     };
 
@@ -485,7 +488,7 @@ public static class StudioApi
         latestStage = project.LatestStage,
         members = origins?.Members.Select(member => new { member.EntryName, member.SizeBytes, member.Sha256 }) ?? [],
         files = origins?.Files.Select(file => new { file.Role, file.Origin, file.NormalizedPath, file.Sha256, file.SizeBytes }) ?? [],
-        scope = "Analyze Project reads the whole package. Assembly-scoped analysis is not available."
+        scope = "Metadata is read for every assembly. Gameplay-first body analysis is selected in Settings and leaves framework bodies unanalyzed."
     };
 
     private static object JobDto(JobRecord job) => new
@@ -503,7 +506,8 @@ public static class StudioApi
         log = job.Log,
         methodDone = job.MethodDone,
         methodTotal = job.MethodTotal,
-        progressKnown = job.MethodTotal is > 0
+        progressKnown = job.MethodTotal is > 0,
+        bodyProgress = job.MethodTotal is > 0 && (job.Stage?.Contains("Body analysis", StringComparison.Ordinal) == true)
     };
 
     private static string JobLabel(string state) => state switch
@@ -544,6 +548,7 @@ public static class StudioApi
         theme = settings.Theme,
         timeoutSeconds = settings.TimeoutSeconds,
         defaultAbi = settings.DefaultAbi,
+        bodyScope = settings.BodyScope,
         dataDirectory = options.DataRoot,
         bindUrl = options.FixedUrl ? options.Url : null
     };
@@ -640,6 +645,7 @@ public static class StudioApi
         public string? Theme { get; set; }
         public int TimeoutSeconds { get; set; } = 180;
         public string? DefaultAbi { get; set; }
+        public string? BodyScope { get; set; }
     }
 
     public sealed class AnalyzeBody

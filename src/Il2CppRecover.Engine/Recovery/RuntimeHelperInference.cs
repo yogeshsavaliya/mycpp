@@ -7,6 +7,8 @@ namespace Il2CppRecover.Recovery;
 /// pass no arguments, and the other path dereferences that register. Two helpers with the same
 /// shape are left unlabelled.
 /// </summary>
+public readonly record struct HelperObservation(ulong Target, bool NullCheckShape);
+
 public static class RuntimeHelperInference
 {
     public const int MinimumSites = 3;
@@ -15,18 +17,21 @@ public static class RuntimeHelperInference
 
     public static IReadOnlyDictionary<ulong, RuntimeHelper> InferNullReferenceRaiser(IEnumerable<DiscoveredFunction> functions)
     {
+        var observations = new List<HelperObservation>();
+        foreach (var fn in functions)
+            CollectObservations(fn, observations);
+        return InferNullReferenceRaiser(observations);
+    }
+
+    public static IReadOnlyDictionary<ulong, RuntimeHelper> InferNullReferenceRaiser(IEnumerable<HelperObservation> observations)
+    {
         var total = new Dictionary<ulong, int>();
         var matching = new Dictionary<ulong, int>();
-        foreach (var fn in functions)
+        foreach (var observation in observations)
         {
-            foreach (var (site, _) in fn.NoReturnCalls)
-            {
-                if (!fn.Instructions.TryGetValue(site, out var call) || call.Kind != A64Kind.Bl)
-                    continue;
-                total[call.Target] = total.GetValueOrDefault(call.Target) + 1;
-                if (IsNullCheckSite(fn, site))
-                    matching[call.Target] = matching.GetValueOrDefault(call.Target) + 1;
-            }
+            total[observation.Target] = total.GetValueOrDefault(observation.Target) + 1;
+            if (observation.NullCheckShape)
+                matching[observation.Target] = matching.GetValueOrDefault(observation.Target) + 1;
         }
         var result = new Dictionary<ulong, RuntimeHelper>();
         foreach (var (target, count) in matching)
@@ -41,13 +46,30 @@ public static class RuntimeHelperInference
         return result.Count == 1 ? result : new Dictionary<ulong, RuntimeHelper>();
     }
 
-    private static bool IsNullCheckSite(DiscoveredFunction fn, ulong site)
+    /// <summary>Records compact noreturn-call evidence and drops the decoded instruction map.</summary>
+    public static void CollectObservations(DiscoveredFunction fn, ICollection<HelperObservation> into)
+    {
+        var branchTargets = new HashSet<ulong>();
+        foreach (var op in fn.Instructions.Values)
+        {
+            if ((op.IsConditionalBranch || op.Kind == A64Kind.B) && op.Target != 0)
+                branchTargets.Add(op.Target);
+        }
+        foreach (var (site, _) in fn.NoReturnCalls)
+        {
+            if (!fn.Instructions.TryGetValue(site, out var call) || call.Kind != A64Kind.Bl)
+                continue;
+            into.Add(new HelperObservation(call.Target, IsNullCheckSite(fn, site, branchTargets)));
+        }
+    }
+
+    private static bool IsNullCheckSite(DiscoveredFunction fn, ulong site, HashSet<ulong> branchTargets)
     {
         var cursor = site;
         while (true)
         {
             var prev = cursor - 4;
-            if (!fn.Instructions.TryGetValue(prev, out var op) || IsBranchTo(fn, cursor) || op.IsBlockTerminator || op.Kind == A64Kind.Bl)
+            if (!fn.Instructions.TryGetValue(prev, out var op) || branchTargets.Contains(cursor) || op.IsBlockTerminator || op.Kind == A64Kind.Bl)
                 break;
             if (!IsFrameSetup(op))
                 return false;
@@ -98,9 +120,6 @@ public static class RuntimeHelperInference
         }
         return false;
     }
-
-    private static bool IsBranchTo(DiscoveredFunction fn, ulong address) =>
-        fn.Instructions.Values.Any(o => (o.IsConditionalBranch || o.Kind == A64Kind.B) && o.Target == address);
 
     private static bool IsFrameSetup(A64Op op) =>
         op.Kind == A64Kind.Nop

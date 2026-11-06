@@ -156,6 +156,65 @@ public class StudioWebTests
     }
 
     [Fact]
+    public void Crash_stderr_names_the_exception_and_keeps_helper_progress_off_the_method_counter()
+    {
+        var stderr = """
+            Hash and inventory
+            Inventory finished: backend=Il2Cpp, succeeded=True
+            Reading metadata tables
+            Metadata tables finished: 30358 methods, layout=31.1
+            Loading binary with pinned LibCpp2IL
+            LibCpp2IL loaded the binary and metadata.
+            Helpers Identifying runtime helpers 10/100: pass 1
+            Method start: Assembly-CSharp Game.BodypartController::Update index=51 addr=0x1000
+            System.InvalidOperationException: lift failed at 0x1000
+            """;
+        var message = JobRunner.DescribeFailure(139, stderr);
+        Assert.Contains("139", message, StringComparison.Ordinal);
+        Assert.Contains("InvalidOperationException", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hash and inventory", message, StringComparison.Ordinal);
+        Assert.True(JobRunner.TryMap("Helpers Identifying runtime helpers 10/100: pass 1", out _, out var stage, out var done, out _, out var keep));
+        Assert.Null(done);
+        Assert.True(keep);
+        Assert.Contains("10 of 100", stage, StringComparison.Ordinal);
+        Assert.True(JobRunner.TryMap("Methods 50/30358: body analysis started", out _, out var body, out var bodyDone, out var bodyTotal, out var keepBody));
+        Assert.False(keepBody);
+        Assert.Equal(50, bodyDone);
+        Assert.Equal(30358, bodyTotal);
+        Assert.Contains("Body analysis", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Crashed_worker_fails_the_job_with_the_exit_code()
+    {
+        await using var factory = new StudioFactory(process: new CrashingProcess());
+        var client = await Open(factory);
+        var created = await Upload(client, WriteApk(), "Crash");
+        var jobId = created.GetProperty("job").GetProperty("id").GetString()!;
+        var job = await Wait(client, jobId);
+        Assert.Equal("Failed", job.GetProperty("state").GetString());
+        var error = job.GetProperty("error").GetString() ?? "";
+        Assert.Contains("139", error, StringComparison.Ordinal);
+        Assert.Contains("InvalidOperationException", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hash and inventory", error, StringComparison.Ordinal);
+        Assert.Contains("BodypartController", job.GetProperty("log").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Fast_progress_keeps_the_identity_line_in_the_job_log()
+    {
+        await using var factory = new StudioFactory(process: new BurstProcess());
+        var client = await Open(factory);
+        var created = await Upload(client, WriteApk(), "Burst");
+        var jobId = created.GetProperty("job").GetProperty("id").GetString()!;
+        var job = await Wait(client, jobId);
+        var log = job.GetProperty("log").GetString() ?? "";
+        Assert.Contains("Identity build=test pid=1 sha256=abc abi=arm64-v8a", log, StringComparison.Ordinal);
+        Assert.Contains("Methods 50/4: body analysis started", log, StringComparison.Ordinal);
+        Assert.False(job.GetProperty("bodyProgress").GetBoolean());
+    }
+
+    [Fact]
     public async Task Restart_marks_an_interrupted_job_failed_and_keeps_the_project()
     {
         var data = Path.Combine(Path.GetTempPath(), "il2cpp-studio-restart-" + Guid.NewGuid().ToString("N"));
@@ -243,6 +302,47 @@ public class StudioWebTests
 
     private static bool IsTerminal(string state) =>
         state is "Completed" or "CompletedWithLimitations" or "Failed" or "Cancelled";
+
+    private sealed class CrashingProcess : IAnalysisProcess
+    {
+        public Task<AnalysisProcessResult> RunAsync(AnalysisProcessRequest request, Action<string> onStderr, CancellationToken jobCancellation, CancellationToken hostStopping)
+        {
+            foreach (var line in new[]
+            {
+                "Hash and inventory",
+                "Inventory finished: backend=Il2Cpp, succeeded=True",
+                "Reading metadata tables",
+                "Metadata tables finished: 30358 methods, layout=31.1",
+                "Loading binary with pinned LibCpp2IL",
+                "LibCpp2IL loaded the binary and metadata.",
+                "Helpers Identifying runtime helpers 10/100: pass 1",
+                "Method start: Assembly-CSharp Game.BodypartController::Update index=51 addr=0x1000",
+                "System.InvalidOperationException: lift failed at 0x1000"
+            })
+                onStderr(line);
+            return Task.FromResult(new AnalysisProcessResult("crashed", 139, "System.InvalidOperationException: lift failed at 0x1000"));
+        }
+    }
+
+    private sealed class BurstProcess : IAnalysisProcess
+    {
+        public Task<AnalysisProcessResult> RunAsync(AnalysisProcessRequest request, Action<string> onStderr, CancellationToken jobCancellation, CancellationToken hostStopping)
+        {
+            foreach (var line in new[]
+            {
+                "Hash and inventory",
+                "Inventory finished: backend=Il2Cpp, succeeded=True",
+                "Identity build=test pid=1 sha256=abc abi=arm64-v8a",
+                "Reading metadata tables",
+                "Metadata tables finished: 4 methods, layout=31.1",
+                "Helpers Identifying runtime helpers 1/1: pass 1",
+                "Methods 50/4: body analysis started",
+                "Writing output"
+            })
+                onStderr(line);
+            return Task.FromResult(new AnalysisProcessResult("finished", 0, ""));
+        }
+    }
 
     private sealed class HoldingProcess : IAnalysisProcess
     {

@@ -2,7 +2,7 @@ namespace Il2CppRecover.Analysis;
 
 public static class RecoveryReportBuilder
 {
-    public static RecoveryReport Build(IReadOnlyList<MethodRecord> methods)
+    public static RecoveryReport Build(IReadOnlyList<MethodRecord> methods, string bodyScope = "full")
     {
         var unique = methods
             .Where(m => !string.IsNullOrEmpty(m.NativeVirtualAddress))
@@ -20,6 +20,7 @@ public static class RecoveryReportBuilder
             PinnedLibCpp2Il = ToolInfo.LibCpp2IlPackage + " " + ToolInfo.LibCpp2IlVersion,
             PinnedDisarm = ToolInfo.DisarmPackage + " " + ToolInfo.DisarmVersion,
             BuildIdentity = ToolInfo.BuildIdentity,
+            BodyAnalysisScope = bodyScope,
             Breakdown =
             [
                 Breakdown("Gameplay and third-party assemblies", methods.Where(m => !IsFramework(m)).ToList()),
@@ -40,6 +41,9 @@ public static class RecoveryReportBuilder
                 Unsupported = methods.Count(m => m.Status == MethodRecoveryStatus.Unsupported),
                 Failed = methods.Count(m => m.Status == MethodRecoveryStatus.Failed),
                 PlaceholderBodies = methods.Count(m => m.CSharpIsPlaceholder),
+                AnalysisBudgetExceeded = methods.Count(m => m.Status == MethodRecoveryStatus.AnalysisBudgetExceeded),
+                TimedOut = methods.Count(m => m.Status == MethodRecoveryStatus.TimedOut),
+                NotAnalyzed = methods.Count(m => m.Status == MethodRecoveryStatus.NotAnalyzed),
                 CompilationChecked = methods.Count(m => m.Compilation == "Compiled"),
                 BehaviourCheckedOnFixtures = methods.Count(m => m.Behaviour == "CheckedOnFixture"),
                 Denominator = "FullyRecoveredUniqueBodies counts distinct native addresses whose lift status is RecoveredUnvalidated. Abstract methods, external methods, metadata-only methods, placeholders, and extra metadata rows that share one address are not added to that numerator."
@@ -52,15 +56,20 @@ public static class RecoveryReportBuilder
                 "Not lifted: loops other than one legacy while shape, switches and jump tables, virtual and interface calls, delegates, generic method instances, struct parameters and returns, enum-typed values in bodies, static fields, array element access, string literals, object allocation, exceptions other than an identified null-reference raise, and division.",
                 "The null-reference raise helper is identified from call-site structure across the binary. When that evidence is insufficient, bodies that reach it stay candidates.",
                 "RecoveredUnvalidated means the lifted shape compiled from closed control flow. It has not been compiled against Unity assemblies or compared with the game's behaviour unless a later pass says so.",
-                "Scene, prefab, asset, and script-reference restoration are not implemented. The C# export is an analysis view, not a Unity project."
+                "Scene, prefab, asset, and script-reference restoration are not implemented. The C# export is an analysis view, not a Unity project.",
+                bodyScope == "gameplay-first"
+                    ? "Gameplay-first analysis left framework bodies unanalyzed. They stay in the metadata and the call map, and they are not counted as recovered."
+                    : "Full analysis attempts a body for every concrete method. A method that exceeds its budget is recorded as AnalysisBudgetExceeded or TimedOut and is not counted as recovered."
             ]
         };
     }
 
     private static readonly string[] FrameworkPrefixes = ["mscorlib", "netstandard", "System", "Mono.", "UnityEngine", "Unity.", "Microsoft."];
 
-    public static bool IsFramework(MethodRecord method) =>
-        FrameworkPrefixes.Any(p => method.Assembly.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+    public static bool IsFrameworkAssembly(string assembly) =>
+        FrameworkPrefixes.Any(p => assembly.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+
+    public static bool IsFramework(MethodRecord method) => IsFrameworkAssembly(method.Assembly);
 
     private static StageBreakdown Breakdown(string scope, List<MethodRecord> methods) => new()
     {
@@ -86,9 +95,18 @@ public static class RecoveryReportBuilder
             return "abstract or external (no body expected)";
         if (m.MethodKind == MethodKind.Generic)
             return "generic method";
+        if (m.Status == MethodRecoveryStatus.NotAnalyzed)
+            return "gameplay-first: framework body not analyzed";
+        if (m.Status == MethodRecoveryStatus.AnalysisBudgetExceeded)
+            return "analysis budget exceeded";
+        if (m.Status == MethodRecoveryStatus.TimedOut)
+            return "method deadline exceeded";
         var text = string.Join(" ", m.Diagnostics);
         (string Key, string Reason)[] table =
         [
+            ("Gameplay-first analysis left", "gameplay-first: framework body not analyzed"),
+            ("AnalysisBudgetExceeded", "analysis budget exceeded"),
+            ("TimedOut:", "method deadline exceeded"),
             ("No native virtual address", "no native address"),
             ("Instance method of a value type", "value-type instance method"),
             ("value type", "struct parameter, return, or field type"),

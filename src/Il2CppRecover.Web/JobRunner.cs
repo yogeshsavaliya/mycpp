@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -9,7 +10,7 @@ public interface IAnalysisProcess
     Task<AnalysisProcessResult> RunAsync(AnalysisProcessRequest request, Action<string> onStderr, CancellationToken jobCancellation, CancellationToken hostStopping);
 }
 
-public sealed record AnalysisProcessRequest(string InputPath, string OutputDirectory, string? Abi, string? UnityVersion, TimeSpan Timeout);
+public sealed record AnalysisProcessRequest(string InputPath, string OutputDirectory, string? Abi, string? UnityVersion, TimeSpan Timeout, bool GameplayFirst = false, int MethodBudgetMs = 0);
 
 public sealed record AnalysisProcessResult(string Outcome, int ExitCode, string Stderr);
 
@@ -22,7 +23,9 @@ public sealed class CliAnalysisProcess(StudioOptions options) : IAnalysisProcess
 
         Directory.CreateDirectory(request.OutputDirectory);
         var requestFile = Path.Combine(Directory.GetParent(request.OutputDirectory)!.FullName, "worker-request.json");
-        await File.WriteAllTextAsync(requestFile, JsonSerializer.Serialize(new WorkerPayload(request.InputPath, request.OutputDirectory, request.Abi, request.UnityVersion)), hostStopping);
+        await File.WriteAllTextAsync(requestFile, JsonSerializer.Serialize(new WorkerPayload(request.InputPath, request.OutputDirectory, request.Abi, request.UnityVersion, request.GameplayFirst, request.MethodBudgetMs)), hostStopping);
+        var stderrLog = new StreamWriter(new FileStream(Path.Combine(request.OutputDirectory, "worker-stderr.log"), FileMode.Create, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
+        var tail = new Queue<string>();
 
         var start = new ProcessStartInfo
         {
@@ -41,9 +44,19 @@ public sealed class CliAnalysisProcess(StudioOptions options) : IAnalysisProcess
         process.OutputDataReceived += (_, _) => { };
         process.ErrorDataReceived += (_, e) =>
         {
-            if (e.Data is not null)
+            if (e.Data is null)
+                return;
+            try
             {
-                try { onStderr(e.Data); }
+                stderrLog.WriteLine(e.Data);
+                tail.Enqueue(e.Data);
+                while (tail.Count > 80)
+                    tail.Dequeue();
+                onStderr(e.Data);
+            }
+            catch (Exception ex)
+            {
+                try { stderrLog.WriteLine("progress callback failed: " + ex.GetType().Name + ": " + ex.Message); }
                 catch (Exception) { }
             }
         };
@@ -66,14 +79,17 @@ public sealed class CliAnalysisProcess(StudioOptions options) : IAnalysisProcess
         try { await process.WaitForExitAsync(); }
         catch (Exception) { }
 
-        var stderr = "";
+        var stderr = string.Join('\n', tail);
+        stderrLog.Dispose();
         if (jobCancellation.IsCancellationRequested)
             return new AnalysisProcessResult("cancelled", 6, stderr);
         if (timeout.IsCancellationRequested)
             return new AnalysisProcessResult("timeout", 5, stderr);
         if (hostStopping.IsCancellationRequested)
             return new AnalysisProcessResult("stopped", 6, stderr);
-        return new AnalysisProcessResult("finished", process.ExitCode, stderr);
+        var code = process.HasExited ? process.ExitCode : -1;
+        var crashed = code is < 0 or 134 or 137 or 139 || code > 128;
+        return new AnalysisProcessResult(crashed ? "crashed" : "finished", code, stderr);
     }
 
     private static void TryKill(Process process)
@@ -88,7 +104,7 @@ public sealed class CliAnalysisProcess(StudioOptions options) : IAnalysisProcess
         }
     }
 
-    private sealed record WorkerPayload(string Input, string Output, string? Abi, string? UnityVersion);
+    private sealed record WorkerPayload(string Input, string Output, string? Abi, string? UnityVersion, bool GameplayFirst = false, int MethodBudgetMs = 0);
 }
 
 public sealed class JobRunner(StudioDatabase database, IAnalysisProcess process) : BackgroundService
@@ -137,18 +153,69 @@ public sealed class JobRunner(StudioDatabase database, IAnalysisProcess process)
                 return;
             }
 
-            var stderr = new System.Text.StringBuilder();
+            var tail = new Queue<string>();
+            int? lastDone = null;
+            int? lastTotal = null;
+            string? pendingState = null;
+            string? pendingStage = null;
+            int? pendingDone = null;
+            int? pendingTotal = null;
+            var pendingLog = new StringBuilder();
+            var lastFlush = DateTime.UtcNow;
+            var progressGate = new object();
+            void FlushPending()
+            {
+                lock (progressGate)
+                {
+                    if (pendingLog.Length == 0 || pendingState is null || pendingStage is null)
+                        return;
+                    var chunk = pendingLog.ToString().TrimEnd('\n');
+                    pendingLog.Clear();
+                    database.MarkProgress(job.Id, pendingState, pendingStage, pendingDone, pendingTotal, chunk);
+                    lastFlush = DateTime.UtcNow;
+                }
+            }
+            using var flushTimer = new Timer(_ =>
+            {
+                try { FlushPending(); }
+                catch (Exception) { }
+            }, null, 500, 500);
+            var gameplay = string.Equals(settings.BodyScope, "gameplay", StringComparison.Ordinal);
             var result = await process.RunAsync(
-                new AnalysisProcessRequest(project.AnalysisPath, job.OutputDir, job.RequestedAbi, job.SuppliedUnityVersion, TimeSpan.FromSeconds(settings.TimeoutSeconds)),
+                new AnalysisProcessRequest(project.AnalysisPath, job.OutputDir, job.RequestedAbi, job.SuppliedUnityVersion, TimeSpan.FromSeconds(settings.TimeoutSeconds), gameplay, 0),
                 line =>
                 {
-                    stderr.AppendLine(line);
-                    if (!TryMap(line, out var state, out var stage, out var done, out var total))
-                        return;
-                    database.MarkProgress(job.Id, state, stage, done, total, line);
+                    tail.Enqueue(line);
+                    while (tail.Count > 80)
+                        tail.Dequeue();
+                    var mapped = TryMap(line, out var state, out var stage, out var done, out var total, out var keepCounts);
+                    lock (progressGate)
+                    {
+                        pendingLog.Append(line).Append('\n');
+                        if (mapped)
+                        {
+                            if (keepCounts)
+                            {
+                                done = lastDone;
+                                total = lastTotal;
+                            }
+                            else if (done is not null || total is not null)
+                            {
+                                lastDone = done;
+                                lastTotal = total;
+                            }
+                            pendingState = state;
+                            pendingStage = stage;
+                            pendingDone = done;
+                            pendingTotal = total;
+                        }
+                        if (pendingState is not null && (!mapped || !keepCounts || (DateTime.UtcNow - lastFlush).TotalMilliseconds >= 400))
+                            FlushPending();
+                    }
                 },
                 jobCancel.Token,
                 stoppingToken);
+            FlushPending();
 
             if (result.Outcome == "cancelled")
             {
@@ -166,9 +233,10 @@ public sealed class JobRunner(StudioDatabase database, IAnalysisProcess process)
                 return;
             }
 
-            if (result.ExitCode != 0)
+            if (result.ExitCode != 0 || result.Outcome == "crashed")
             {
-                database.Finish(job.Id, "Failed", "Failed", result.ExitCode, FailureMessage(job.OutputDir, stderr.ToString()));
+                var stderr = result.Stderr.Length > 0 ? result.Stderr : string.Join('\n', tail);
+                database.Finish(job.Id, "Failed", "Failed", result.ExitCode, FailureMessage(job.OutputDir, stderr, result.ExitCode));
                 TryRememberInventory(job);
                 return;
             }
@@ -189,7 +257,10 @@ public sealed class JobRunner(StudioDatabase database, IAnalysisProcess process)
                 || counts.Unsupported > 0
                 || counts.Failed > 0
                 || counts.PartiallyRecovered > 0
-                || counts.DisassembledOnly > 0;
+                || counts.DisassembledOnly > 0
+                || counts.NotAnalyzed > 0
+                || counts.AnalysisBudgetExceeded > 0
+                || counts.TimedOut > 0;
             database.Finish(
                 job.Id,
                 limited ? "CompletedWithLimitations" : "Completed",
@@ -197,9 +268,9 @@ public sealed class JobRunner(StudioDatabase database, IAnalysisProcess process)
                 0,
                 null);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            database.Finish(job.Id, "Failed", "Failed", 4, "The analysis stopped because of an internal error.");
+            database.Finish(job.Id, "Failed", "Failed", 4, "The analysis stopped because of an internal error: " + ex.GetType().Name + ": " + ex.Message);
         }
         finally
         {
@@ -231,50 +302,112 @@ public sealed class JobRunner(StudioDatabase database, IAnalysisProcess process)
         }
     }
 
-    private static string FailureMessage(string outputDir, string stderr)
+    private static string FailureMessage(string outputDir, string stderr, int exitCode)
     {
-        var path = Path.Combine(outputDir, "inventory.json");
-        if (File.Exists(path))
+        if (exitCode == 3)
         {
-            try
+            var path = Path.Combine(outputDir, "inventory.json");
+            if (File.Exists(path))
             {
-                var inventory = JsonSerializer.Deserialize<InventoryResult>(File.ReadAllText(path), JsonDefaults.Options);
-                if (inventory?.Diagnostics.Count > 0)
-                    return string.Join(" ", inventory.Diagnostics.Take(6));
-            }
-            catch (JsonException)
-            {
+                try
+                {
+                    var inventory = JsonSerializer.Deserialize<InventoryResult>(File.ReadAllText(path), JsonDefaults.Options);
+                    if (inventory?.Diagnostics.Count > 0)
+                        return string.Join(" ", inventory.Diagnostics.Take(6));
+                }
+                catch (JsonException)
+                {
+                }
             }
         }
-        return Sanitize(stderr);
+        return DescribeFailure(exitCode, stderr);
     }
 
-    internal static string Sanitize(string? text)
+    internal static string DescribeFailure(int exitCode, string? stderr)
     {
-        if (string.IsNullOrWhiteSpace(text))
-            return "The package could not be analyzed.";
-        var cleaned = PathPattern().Replace(text, "[path]");
-        cleaned = string.Join(" ", cleaned.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(8));
-        if (cleaned.Length > 700)
-            cleaned = cleaned[..700];
-        return cleaned.Length == 0 ? "The package could not be analyzed." : cleaned;
+        var lines = (stderr ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(line => PathPattern().Replace(line, "[path]"))
+            .ToList();
+        string? picked = null;
+        for (var i = lines.Count - 1; i >= 0; i--)
+        {
+            var line = lines[i];
+            if (line.Contains("Exception", StringComparison.Ordinal)
+                || line.StartsWith("TimedOut", StringComparison.Ordinal)
+                || line.Contains("Stack overflow", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("AnalysisBudget", StringComparison.Ordinal)
+                || line.StartsWith("Method start:", StringComparison.Ordinal)
+                || line.StartsWith("Method end", StringComparison.Ordinal))
+            {
+                picked = line;
+                break;
+            }
+        }
+        if (picked is null)
+            picked = lines.Count == 0 ? "The analysis process produced no error text." : string.Join(" | ", lines.TakeLast(6));
+        var crashed = exitCode is < 0 or 134 or 137 or 139 || exitCode > 128;
+        var prefix = crashed
+            ? "The analysis process terminated unexpectedly (exit " + exitCode + "). "
+            : "The analysis process exited with code " + exitCode + ". ";
+        var text = prefix + picked;
+        return text.Length > 700 ? text[..700] : text;
     }
 
-    internal static bool TryMap(string line, out string state, out string stage, out int? done, out int? total)
+    internal static string Sanitize(string? text) => DescribeFailure(4, text);
+
+    internal static bool TryMap(string line, out string state, out string stage, out int? done, out int? total, out bool keepCounts)
     {
         done = null;
         total = null;
+        keepCounts = false;
+        if (line.StartsWith("Helpers ", StringComparison.Ordinal))
+        {
+            state = "AnalyzingNativeCode";
+            keepCounts = true;
+            stage = "Identifying runtime helpers";
+            var fraction = Fraction(line["Helpers ".Length..]);
+            if (fraction is { } pair)
+                stage = "Identifying runtime helpers (" + pair.Done + " of " + pair.Total + " entries)";
+            return true;
+        }
+        if (line.StartsWith("Heartbeat ", StringComparison.Ordinal))
+        {
+            state = "AnalyzingNativeCode";
+            keepCounts = true;
+            stage = line["Heartbeat ".Length..];
+            return true;
+        }
+        if (line.StartsWith("Method start:", StringComparison.Ordinal))
+        {
+            state = "AnalyzingNativeCode";
+            keepCounts = true;
+            stage = "Body analysis: " + line["Method start:".Length..].Trim();
+            return true;
+        }
+        if (line.StartsWith("Identity ", StringComparison.Ordinal))
+        {
+            state = "Extracting";
+            stage = "Starting analysis";
+            keepCounts = true;
+            return true;
+        }
+        if (line.StartsWith("Framework bodies not analyzed", StringComparison.Ordinal) || line.StartsWith("Body analysis", StringComparison.Ordinal))
+        {
+            state = "AnalyzingNativeCode";
+            stage = line;
+            keepCounts = true;
+            return true;
+        }
         if (line.StartsWith("Methods ", StringComparison.Ordinal))
         {
             state = "AnalyzingNativeCode";
-            stage = "Analyzing native code";
-            var fraction = line["Methods ".Length..].Split(' ', ':')[0];
-            var parts = fraction.Split('/');
-            if (parts.Length == 2 && int.TryParse(parts[0], out var parsedDone) && int.TryParse(parts[1], out var parsedTotal))
+            stage = "Body analysis";
+            var fraction = Fraction(line["Methods ".Length..]);
+            if (fraction is { } pair)
             {
-                done = parsedDone;
-                total = parsedTotal;
-                stage = "Analyzing native code (" + parsedDone + " of " + parsedTotal + " methods)";
+                done = pair.Done;
+                total = pair.Total;
+                stage = "Body analysis (" + pair.Done + " of " + pair.Total + " methods started)";
             }
             return true;
         }
@@ -300,11 +433,23 @@ public sealed class JobRunner(StudioDatabase database, IAnalysisProcess process)
         {
             state = "GeneratingOutput";
             stage = "Generating output";
+            keepCounts = true;
             return true;
         }
         state = "";
         stage = "";
         return false;
+    }
+
+    private static (int Done, int Total)? Fraction(string text)
+    {
+        foreach (var token in text.Split(' ', ':'))
+        {
+            var parts = token.Split('/');
+            if (parts.Length == 2 && int.TryParse(parts[0], out var done) && int.TryParse(parts[1], out var total))
+                return (done, total);
+        }
+        return null;
     }
 
     private static Regex PathPattern() => new(@"([A-Za-z]:\\[^\s""]+|/(?:home|tmp|workspace|Users|var|opt|usr)[^\s""]*)", RegexOptions.Compiled);

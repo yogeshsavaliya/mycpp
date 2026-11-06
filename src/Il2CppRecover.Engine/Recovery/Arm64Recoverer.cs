@@ -10,7 +10,7 @@ namespace Il2CppRecover.Recovery;
 /// </summary>
 public static class Arm64Recoverer
 {
-    public static IReadOnlyList<NativeInstruction> Disassemble(byte[] code, ulong address)
+    public static IReadOnlyList<NativeInstruction> Disassemble(byte[] code, ulong address, ICollection<string>? errors = null)
     {
         if (code.Length == 0 || code.Length % 4 != 0)
             return [];
@@ -19,8 +19,9 @@ public static class Arm64Recoverer
             var instructions = Disassembler.Disassemble(code, address, new Disassembler.Options(true, true, false)).ToList();
             return Render(code, instructions);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
         {
+            errors?.Add("Disassembly failed: " + ex.GetType().Name + ": " + ex.Message);
             return [];
         }
     }
@@ -36,12 +37,39 @@ public static class Arm64Recoverer
             return Fail(request, "The method slice is empty.", []);
         if (request.Code.Length % 4 != 0)
             return Fail(request, "The ARM64 slice length is not a multiple of 4.", []);
-        var rendered = Disassemble(request.Code, request.VirtualAddress).ToList();
+        var disarmNotes = new List<string>();
+        var rendered = Disassemble(request.Code, request.VirtualAddress, disarmNotes).ToList();
         if (request.Contract.IsGeneric)
             return Incomplete(request, MethodRecoveryStatus.Unsupported, rendered, ["Generic and shared-generic method bodies are not recovered in this milestone."]);
 
         var space = request.Space ?? CodeSpace.ForSlice(request.Code, request.VirtualAddress);
-        var fn = FunctionDiscovery.Discover(space, request.VirtualAddress);
+        ArmDeadline(request);
+        Action pulse = () =>
+        {
+            if (request.DeadlineTimestamp is long deadline && System.Diagnostics.Stopwatch.GetTimestamp() >= deadline)
+                throw new AnalysisLimitException(MethodRecoveryStatus.TimedOut, "TimedOut: this method exceeded its analysis deadline before a body was recovered.");
+            request.Pulse?.Invoke();
+        };
+        DiscoveredFunction fn;
+        try
+        {
+            fn = request.Cache is null
+                ? FunctionDiscovery.Discover(space, request.VirtualAddress, request.CancellationToken, request.Budget.MaxInstructions, pulse)
+                : request.Cache.GetOrDiscover(space, request.VirtualAddress, request.CancellationToken, request.Budget.MaxInstructions, pulse);
+        }
+        catch (AnalysisLimitException ex)
+        {
+            return new MethodBodyResult
+            {
+                Status = ex.Status,
+                Diagnostics = [ex.Message],
+                Instructions = rendered,
+                CSharp = CSharpEmitter.Placeholder(ex.Status, [ex.Message]),
+                CSharpIsPlaceholder = true,
+                Boundary = request.Boundary,
+                Engine = "structured"
+            };
+        }
         var listing = ListingFor(fn, rendered);
         string? thunkChain = null;
         if (fn.Instructions.Count == 1 && fn.TailCalls.Count == 1)
@@ -55,10 +83,26 @@ public static class Arm64Recoverer
             }
         }
 
-        var outcome = StructuredLifter.Lift(request, fn);
+        StructuredLifter.Outcome outcome;
+        try
+        {
+            outcome = StructuredLifter.Lift(request, fn);
+        }
+        catch (AnalysisLimitException ex)
+        {
+            return BudgetResult(request, fn, rendered, ex);
+        }
         if (outcome.HasLoop)
         {
-            var legacy = LegacyRecover(request);
+            MethodBodyResult legacy;
+            try
+            {
+                legacy = LegacyRecover(request);
+            }
+            catch (AnalysisLimitException ex)
+            {
+                return BudgetResult(request, fn, rendered, ex);
+            }
             var notes = legacy.Diagnostics.ToList();
             notes.Insert(0, "The control-flow graph has a loop; the structured lifter does not structure loops, so the legacy single-loop matcher was tried.");
             return new MethodBodyResult
@@ -72,11 +116,14 @@ public static class Arm64Recoverer
                 Provenance = legacy.Provenance,
                 Statements = legacy.Statements,
                 Boundary = request.Boundary,
-                Engine = "legacy-shape"
+                Engine = "legacy-shape",
+                InstructionCount = fn.Instructions.Count,
+                BlockCount = outcome.BlockCount
             };
         }
 
         var diagnostics = new List<string>();
+        diagnostics.AddRange(disarmNotes);
         diagnostics.AddRange(fn.Issues);
         diagnostics.AddRange(outcome.Diagnostics);
         if (outcome.Statements is null || !fn.ControlFlowClosed)
@@ -85,9 +132,7 @@ public static class Arm64Recoverer
                 diagnostics.Add("The structured lifter produced no body.");
             if (thunkChain is not null)
                 diagnostics.Insert(0, "Kind: thunk " + thunkChain);
-            var status = diagnostics.Any(d => d.Contains("failed", StringComparison.OrdinalIgnoreCase))
-                ? MethodRecoveryStatus.Failed
-                : MethodRecoveryStatus.Unsupported;
+            var status = Classify(diagnostics);
             return new MethodBodyResult
             {
                 Status = status,
@@ -97,7 +142,9 @@ public static class Arm64Recoverer
                 CSharpIsPlaceholder = true,
                 Boundary = fn.ControlFlowClosed ? BoundaryEvidence.ControlFlowClosed : request.Boundary,
                 Engine = "structured",
-                ThunkChain = thunkChain
+                ThunkChain = thunkChain,
+                InstructionCount = fn.Instructions.Count,
+                BlockCount = outcome.BlockCount
             };
         }
 
@@ -134,7 +181,9 @@ public static class Arm64Recoverer
                 Statements = outcome.Statements,
                 Boundary = BoundaryEvidence.ControlFlowClosed,
                 Engine = "structured",
-                ThunkChain = thunkChain
+                ThunkChain = thunkChain,
+                InstructionCount = fn.Instructions.Count,
+                BlockCount = outcome.BlockCount
             };
         }
 
@@ -150,8 +199,55 @@ public static class Arm64Recoverer
             Statements = outcome.Statements,
             Boundary = BoundaryEvidence.ControlFlowClosed,
             Engine = "structured",
-            ThunkChain = thunkChain
+            ThunkChain = thunkChain,
+            InstructionCount = fn.Instructions.Count,
+            BlockCount = outcome.BlockCount
         };
+    }
+
+    private static void ArmDeadline(RecoveryRequest request)
+    {
+        if (request.DeadlineTimestamp is not null)
+            return;
+        if (request.Budget.MethodDeadline == TimeSpan.Zero)
+        {
+            request.DeadlineTimestamp = System.Diagnostics.Stopwatch.GetTimestamp() - 1;
+            return;
+        }
+        if (request.Budget.MethodDeadline < TimeSpan.Zero)
+            return;
+        var ticks = (long)(request.Budget.MethodDeadline.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
+        request.DeadlineTimestamp = System.Diagnostics.Stopwatch.GetTimestamp() + Math.Max(1, ticks);
+    }
+
+    private static MethodBodyResult BudgetResult(RecoveryRequest request, DiscoveredFunction fn, List<NativeInstruction> rendered, AnalysisLimitException ex)
+    {
+        var notes = new List<string> { ex.Message };
+        return new MethodBodyResult
+        {
+            Status = ex.Status,
+            Diagnostics = notes,
+            Instructions = ListingFor(fn, rendered),
+            CSharp = CSharpEmitter.Placeholder(ex.Status, notes),
+            CSharpIsPlaceholder = true,
+            Boundary = request.Boundary,
+            Engine = "structured",
+            InstructionCount = fn.Instructions.Count
+        };
+    }
+
+    private static MethodRecoveryStatus Classify(IReadOnlyList<string> diagnostics)
+    {
+        foreach (var diagnostic in diagnostics)
+        {
+            if (diagnostic.StartsWith("AnalysisBudgetExceeded", StringComparison.Ordinal))
+                return MethodRecoveryStatus.AnalysisBudgetExceeded;
+            if (diagnostic.StartsWith("TimedOut", StringComparison.Ordinal))
+                return MethodRecoveryStatus.TimedOut;
+        }
+        return diagnostics.Any(d => d.Contains("failed", StringComparison.OrdinalIgnoreCase))
+            ? MethodRecoveryStatus.Failed
+            : MethodRecoveryStatus.Unsupported;
     }
 
     private static List<NativeInstruction> ListingFor(DiscoveredFunction fn, List<NativeInstruction> sliceListing)
@@ -192,9 +288,9 @@ public static class Arm64Recoverer
         {
             instructions = Disassembler.Disassemble(request.Code, request.VirtualAddress, new Disassembler.Options(true, true, false)).ToList();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException and not AnalysisLimitException and not OutOfMemoryException)
         {
-            return Fail(request, "Disassembly failed: " + ex.Message, []);
+            return Fail(request, "Disassembly failed: " + ex.GetType().Name + ": " + ex.Message, []);
         }
 
         var rendered = Render(request.Code, instructions);
@@ -220,11 +316,11 @@ public static class Arm64Recoverer
         List<Block> blocks;
         try
         {
-            blocks = BuildCfg(instructions);
+            blocks = BuildCfg(instructions, request);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException and not AnalysisLimitException and not OutOfMemoryException)
         {
-            return Incomplete(request, MethodRecoveryStatus.Failed, rendered, ["Control-flow construction failed: " + ex.Message]);
+            return Incomplete(request, MethodRecoveryStatus.Failed, rendered, ["Control-flow construction failed: " + ex.GetType().Name + ": " + ex.Message]);
         }
 
         var reachable = Reachable(blocks);
@@ -1076,15 +1172,27 @@ public static class Arm64Recoverer
     private static bool EndsWith(List<Arm64Instruction> insns, Block block, Arm64Mnemonic mnemonic) =>
         insns[block.Last].Mnemonic == mnemonic;
 
-    private static List<Block> BuildCfg(List<Arm64Instruction> insns)
+    private static List<Block> BuildCfg(List<Arm64Instruction> insns, RecoveryRequest? request = null)
     {
+        void Check()
+        {
+            request?.CancellationToken.ThrowIfCancellationRequested();
+            if (request?.DeadlineTimestamp is long deadline && System.Diagnostics.Stopwatch.GetTimestamp() >= deadline)
+                throw new AnalysisLimitException(MethodRecoveryStatus.TimedOut, "TimedOut: this method exceeded its analysis deadline before a body was recovered.");
+        }
         var indexByAddress = new Dictionary<ulong, int>();
         for (var i = 0; i < insns.Count; i++)
+        {
+            if ((i & 255) == 0)
+                Check();
             indexByAddress[insns[i].Address] = i;
+        }
 
         var leaders = new SortedSet<int> { 0 };
         for (var i = 0; i < insns.Count; i++)
         {
+            if ((i & 255) == 0)
+                Check();
             if (!IsTerminator(insns[i]))
                 continue;
             if (FallsThrough(insns[i]) && i + 1 < insns.Count)

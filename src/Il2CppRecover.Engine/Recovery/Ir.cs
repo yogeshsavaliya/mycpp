@@ -145,6 +145,31 @@ public sealed class RecoveryRequest
     public CodeSpace? Space { get; init; }
     public IReadOnlyDictionary<string, IReadOnlyList<FieldContract>>? TypeFields { get; init; }
     public IReadOnlyDictionary<ulong, RuntimeHelper>? RuntimeHelpers { get; init; }
+    public AnalysisBudget Budget { get; init; } = AnalysisBudget.Default;
+    public CancellationToken CancellationToken { get; init; }
+    public DiscoveryCache? Cache { get; init; }
+    /// <summary>Stopwatch timestamp at which the method deadline has elapsed. Null means no deadline.</summary>
+    public long? DeadlineTimestamp { get; set; }
+    /// <summary>Called from long loops so the host can publish a heartbeat. It must be cheap.</summary>
+    public Action? Pulse { get; init; }
+}
+
+public sealed class AnalysisBudget
+{
+    public static AnalysisBudget Default { get; } = new();
+
+    /// <summary>Instruction cap for one discovery. The historical limit stays in force unless a caller sets a smaller budget.</summary>
+    public int MaxInstructions { get; init; } = FunctionDiscovery.MaxInstructions;
+
+    /// <summary>Basic-block cap before structuring. A method over this cap is not recovered.</summary>
+    public int MaxBlocks { get; init; } = 16384;
+
+    public TimeSpan MethodDeadline { get; init; } = TimeSpan.FromSeconds(15);
+}
+
+public sealed class AnalysisLimitException(MethodRecoveryStatus status, string message) : Exception(message)
+{
+    public MethodRecoveryStatus Status { get; } = status;
 }
 
 public enum RuntimeHelperKind { RaiseNullReferenceException }
@@ -164,4 +189,6 @@ public sealed class MethodBodyResult
     public BoundaryEvidence Boundary { get; init; } = BoundaryEvidence.NotApplicable;
     public string Engine { get; init; } = "";
     public string? ThunkChain { get; init; }
+    public int InstructionCount { get; init; }
+    public int BlockCount { get; init; }
 }

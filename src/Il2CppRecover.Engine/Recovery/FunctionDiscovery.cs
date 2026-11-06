@@ -84,7 +84,7 @@ public sealed class CodeSpace
         return false;
     }
 
-    public void AddNoReturn(ulong address, string evidence) => _noReturn.TryAdd(address, evidence);
+    public bool AddNoReturn(ulong address, string evidence) => _noReturn.TryAdd(address, evidence);
     public IReadOnlyDictionary<ulong, string> NoReturn => _noReturn;
 }
 
@@ -109,23 +109,35 @@ public static class FunctionDiscovery
 {
     public const int MaxInstructions = 16384;
 
-    public static DiscoveredFunction Discover(CodeSpace space, ulong entry)
+    public static DiscoveredFunction Discover(CodeSpace space, ulong entry, CancellationToken cancellationToken = default, int? maxInstructions = null, Action? pulse = null)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        var limit = maxInstructions ?? MaxInstructions;
+        if (limit <= 0)
+            limit = MaxInstructions;
         var upper = space.NextEntryAfter(entry);
         var fn = new DiscoveredFunction { Entry = entry, UpperBound = upper };
         bool Inside(ulong a) => a >= entry && (upper is null || a < upper.Value);
         var work = new Stack<ulong>();
         work.Push(entry);
+        var steps = 0;
         while (work.Count > 0)
         {
             var address = work.Pop();
             while (true)
             {
+                if ((++steps & 63) == 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    pulse?.Invoke();
+                }
                 if (fn.Instructions.ContainsKey(address))
                     break;
-                if (fn.Instructions.Count >= MaxInstructions)
+                if (fn.Instructions.Count >= limit)
                 {
-                    fn.Issues.Add($"Discovery stopped after {MaxInstructions} instructions.");
+                    fn.Issues.Add(limit == MaxInstructions
+                        ? $"Discovery stopped after {MaxInstructions} instructions."
+                        : $"AnalysisBudgetExceeded: discovery stopped after {limit} instructions.");
                     return fn;
                 }
                 if (!Inside(address))
