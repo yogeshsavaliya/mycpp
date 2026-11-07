@@ -89,6 +89,25 @@ public sealed record AddressExpr(ulong Address) : Expr(PrimitiveKind.UInt64)
     public override string Describe() => $"0x{Address:X}";
 }
 
+public enum MetadataSlotKind { Type, Method, Field, StringLiteral }
+
+/// <summary>
+/// A resolved IL2CPP runtime-metadata slot. <see cref="ValueAtAddress"/> is false when the word at
+/// the loaded address is a pointer to the encoded token (the v29 layout) and a following load of
+/// that pointer yields the resolved entity.
+/// </summary>
+public sealed record MetadataSlot(MetadataSlotKind Kind, string Display, bool ValueAtAddress);
+
+public sealed record MetadataEntryExpr(MetadataSlot Slot) : Expr(PrimitiveKind.Reference)
+{
+    public override string Describe() => "metadata entry " + Slot.Kind + " " + Slot.Display;
+}
+
+public sealed record MetadataValueExpr(MetadataSlot Slot) : Expr(PrimitiveKind.Reference)
+{
+    public override string Describe() => Slot.Kind + " " + Slot.Display;
+}
+
 public abstract record Stmt
 {
     public required IReadOnlyList<ulong> Addresses { get; init; }
@@ -157,6 +176,8 @@ public sealed class RecoveryRequest
     public IReadOnlyDictionary<int, IReadOnlyList<FieldContract>>? TypeFieldsById { get; init; }
     public IReadOnlyDictionary<int, string>? LayoutNotes { get; init; }
     public IReadOnlyDictionary<ulong, RuntimeHelper>? RuntimeHelpers { get; init; }
+    /// <summary>Resolves one absolute address to an IL2CPP metadata slot, or null when the bytes are not a token.</summary>
+    public Func<ulong, MetadataSlot?>? ResolveMetadataSlot { get; init; }
     public AnalysisBudget Budget { get; init; } = AnalysisBudget.Default;
     public CancellationToken CancellationToken { get; init; }
     public DiscoveryCache? Cache { get; init; }

@@ -34,6 +34,11 @@ public static class Arm64Asm
     public static uint Tbnz(int rt, int bit, int byteDelta) => Tbz(rt, bit, byteDelta) | 0x01000000u;
     public static uint LdrW(int rt, int rn, int byteOffset) => 0xB9400000u | ((uint)(byteOffset / 4) << 10) | ((uint)rn << 5) | (uint)rt;
     public static uint StrW(int rt, int rn, int byteOffset) => 0xB9000000u | ((uint)(byteOffset / 4) << 10) | ((uint)rn << 5) | (uint)rt;
+    public static uint LdrB(int rt, int rn, int byteOffset) => 0x39400000u | ((uint)byteOffset << 10) | ((uint)rn << 5) | (uint)rt;
+    public static uint StrB(int rt, int rn, int byteOffset) => 0x39000000u | ((uint)byteOffset << 10) | ((uint)rn << 5) | (uint)rt;
+    public static uint LdrX(int rt, int rn, int byteOffset) => 0xF9400000u | ((uint)(byteOffset / 8) << 10) | ((uint)rn << 5) | (uint)rt;
+    public static uint Cbz64(int rt, int byteDelta) => Cbz(rt, byteDelta) | 0x80000000u;
+    public static uint MovReg64(int rd, int rm) => 0xAA0003E0u | ((uint)rm << 16) | (uint)rd;
     public static uint Adrp(int rd, int immlo, int immhi) => 0x90000000u | ((uint)immlo << 29) | ((uint)immhi << 5) | (uint)rd;
 
     public const int Eq = 0;

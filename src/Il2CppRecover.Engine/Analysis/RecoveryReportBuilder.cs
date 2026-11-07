@@ -124,6 +124,8 @@ public static class RecoveryReportBuilder
             ("indirect call", "virtual/interface/delegate call"),
             ("object header", "virtual dispatch or type check"),
             ("global data", "static field or runtime metadata access"),
+            ("resolved metadata", "resolved metadata value is not a lifted object"),
+            ("hidden MethodInfo", "hidden MethodInfo argument"),
             ("not in the method map", "call to unidentified native code"),
             ("generic", "generic method or instance"),
             ("legacy single-loop", "loop"),

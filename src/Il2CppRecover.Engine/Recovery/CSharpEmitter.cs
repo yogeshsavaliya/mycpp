@@ -379,6 +379,8 @@ public static class CSharpEmitter
         CallExpr call => EmitCall(call),
         ConditionalExpr cond => "(" + EmitExpr(cond.Condition) + " ? " + EmitExpr(cond.WhenTrue) + " : " + EmitExpr(cond.WhenFalse) + ")",
         AddressExpr addr => "0x" + addr.Address.ToString("X"),
+        MetadataEntryExpr entry => throw new UnemittableException("metadata entry " + entry.Slot.Kind + " " + entry.Slot.Display + " has no C# form"),
+        MetadataValueExpr value => throw new UnemittableException("metadata " + value.Slot.Kind + " " + value.Slot.Display + " has no C# form"),
         OpaqueExpr or StackAddrExpr or FieldAddrExpr or SelectedOffsetExpr => throw new UnemittableException("a machine address has no C# form"),
         _ => throw new UnemittableException("expression " + expr.GetType().Name + " has no C# form")
     };

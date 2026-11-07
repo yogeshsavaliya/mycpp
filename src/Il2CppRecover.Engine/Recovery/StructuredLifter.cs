@@ -27,12 +27,19 @@ public static class StructuredLifter
             return blocked;
         }
         var blocks = BuildBlocks(fn, out var blockAt);
+        var elision = new List<string>();
+        MetadataInitGuard.Elide(blocks, blockAt, elision);
         if (HasCycle(blocks, blockAt, request))
-            return new Outcome { HasLoop = true, BlockCount = blocks.Count };
+        {
+            var loop = new Outcome { HasLoop = true, BlockCount = blocks.Count };
+            loop.Evidence.AddRange(elision);
+            return loop;
+        }
         if (blocks.Count > request.Budget.MaxBlocks)
         {
             var limited = new Outcome { BlockCount = blocks.Count };
             limited.Diagnostics.Add($"AnalysisBudgetExceeded: {blocks.Count} basic blocks exceeds the limit of {request.Budget.MaxBlocks}.");
+            limited.Evidence.AddRange(elision);
             return limited;
         }
         var ctx = new Ctx(request, fn, blocks, blockAt);
@@ -45,6 +52,7 @@ public static class StructuredLifter
             Cleanup.Run(body, ctx.Check);
             var ok = new Outcome { Statements = body, CandidateOnly = ctx.CandidateOnly, BlockCount = blocks.Count };
             ok.Diagnostics.AddRange(ctx.Notes);
+            ok.Evidence.AddRange(elision);
             ok.Evidence.AddRange(ctx.EvidenceNotes);
             return ok;
         }
@@ -52,6 +60,7 @@ public static class StructuredLifter
         {
             var failed = new Outcome { BlockCount = blocks.Count };
             failed.Diagnostics.Add(ex.Message);
+            failed.Evidence.AddRange(elision);
             failed.Evidence.AddRange(ctx.EvidenceNotes);
             return failed;
         }
@@ -626,7 +635,7 @@ public static class StructuredLifter
         private void EmitNoReturn(Block block, State st, List<Stmt> stmts)
         {
             var op = block.Term!;
-            if (_req.RuntimeHelpers is not null && _req.RuntimeHelpers.TryGetValue(op.Target, out var helper) && helper.Kind == RuntimeHelperKind.RaiseNullReferenceException)
+            if (_req.RuntimeHelpers is not null && _req.RuntimeHelpers.TryGetValue(op.Target, out var helper) && helper.Kind == RuntimeHelperKind.RaiseNullReferenceException && RuntimeHelperInference.IsNullCheck(_fn, op.Address))
             {
                 stmts.Add(new ThrowStmt("System.NullReferenceException", helper.Evidence) { Addresses = [op.Address] });
                 EvidenceNotes.Add($"0x{op.Address:X}: call to 0x{op.Target:X} raises NullReferenceException ({helper.Evidence}).");
@@ -1204,12 +1213,32 @@ public static class StructuredLifter
             }
             if (baseExpr is AddressExpr global)
             {
-                var staticField = _req.Contract.Fields.FirstOrDefault(f => f.IsStatic && f.AbsoluteAddress == global.Address + (ulong)offset);
+                var at = global.Address + (ulong)offset;
+                if (op.Kind == A64Kind.Ldr && op.Size == 8 && !op.SignedLoad && _req.ResolveMetadataSlot?.Invoke(at) is MetadataSlot slot)
+                {
+                    Expr resolved = slot.ValueAtAddress ? new MetadataValueExpr(slot) : new MetadataEntryExpr(slot);
+                    Write(st, op.Rt, 64, resolved);
+                    EvidenceNotes.Add($"0x{op.Address:X}: address 0x{at:X} is a metadata {slot.Kind} slot ({slot.Display}).");
+                    return;
+                }
+                var staticField = _req.Contract.Fields.FirstOrDefault(f => f.IsStatic && f.AbsoluteAddress == at);
                 if (staticField is null)
-                    throw new LiftException($"0x{op.Address:X}: access to global data at 0x{global.Address + (ulong)offset:X} (IL2CPP metadata usage, class pointer, or static storage) is not resolved. No pointer was invented.");
+                    throw new LiftException($"0x{op.Address:X}: access to global data at 0x{at:X} (IL2CPP metadata usage, class pointer, or static storage) is not resolved. No pointer was invented.");
                 AccessField(op, null, staticField, st, stmts);
                 return;
             }
+            if (baseExpr is MetadataEntryExpr entry)
+            {
+                if (op.Kind == A64Kind.Ldr && offset == 0 && op.Size == 8 && !op.SignedLoad)
+                {
+                    Write(st, op.Rt, 64, new MetadataValueExpr(entry.Slot));
+                    EvidenceNotes.Add($"0x{op.Address:X}: load of resolved metadata {entry.Slot.Kind} {entry.Slot.Display}.");
+                    return;
+                }
+                throw new LiftException($"0x{op.Address:X}: metadata entry {entry.Slot.Display} is not consumed as the resolved value. No field was invented.");
+            }
+            if (baseExpr is MetadataValueExpr usage)
+                throw new LiftException($"0x{op.Address:X}: resolved metadata {usage.Slot.Kind} {usage.Slot.Display} is not a lifted object. No pointer was invented.");
             if (baseExpr.Type != PrimitiveKind.Reference)
                 throw new LiftException($"0x{op.Address:X}: memory access through a non-reference value is not lifted. No pointer was invented.");
             if (offset == 0)
