@@ -227,6 +227,7 @@ public static class StructuredLifter
         private int _emitted;
         private long _nextPulse;
         private readonly string _selfType;
+        private readonly int? _selfTypeId;
         public readonly List<string> Notes = [];
         public readonly List<string> EvidenceNotes = [];
         public bool CandidateOnly;
@@ -238,6 +239,7 @@ public static class StructuredLifter
             _blocks = blocks;
             _blockAt = blockAt;
             _selfType = Qualified(req.Contract.Namespace, req.Contract.DeclaringType);
+            _selfTypeId = req.Contract.DeclaringTypeId;
         }
 
         private static string Qualified(string ns, string type) => string.IsNullOrEmpty(ns) ? type : ns + "." + type;
@@ -331,13 +333,13 @@ public static class StructuredLifter
             var ngrn = 0;
             if (!_req.Contract.IsStatic)
             {
-                st.X[0] = new Slot { Value = new ThisExpr { RefType = _selfType }, Width = 64 };
+                st.X[0] = new Slot { Value = new ThisExpr { RefType = _selfType, RefTypeId = _selfTypeId }, Width = 64 };
                 ngrn = 1;
             }
             var nsrn = 0;
             foreach (var p in _req.Contract.Parameters)
             {
-                var expr = new ParamExpr(p.Name, p.Type) { RefType = p.Type == PrimitiveKind.Reference ? p.DeclaredType : null };
+                var expr = new ParamExpr(p.Name, p.Type) { RefType = p.Type == PrimitiveKind.Reference ? p.DeclaredType : null, RefTypeId = p.Type == PrimitiveKind.Reference ? p.DeclaredTypeId : null };
                 if (p.Type is PrimitiveKind.Single or PrimitiveKind.Double)
                 {
                     if (nsrn >= 8)
@@ -517,17 +519,19 @@ public static class StructuredLifter
                         target[r] = null;
                         continue;
                     }
-                    var refType = type == PrimitiveKind.Reference && l.Value.RefType == rr.Value.RefType ? l.Value.RefType : null;
-                    if (type == PrimitiveKind.Reference && refType is null)
+                    var sameReference = type == PrimitiveKind.Reference && TypeIdentity.Same(l.Value.RefTypeId, l.Value.RefType, rr.Value.RefTypeId, rr.Value.RefType);
+                    var refType = sameReference ? l.Value.RefType : null;
+                    var refTypeId = sameReference ? l.Value.RefTypeId : null;
+                    if (type == PrimitiveKind.Reference && refType is null && refTypeId is null)
                     {
                         target[r] = null;
                         continue;
                     }
                     var name = "m" + prefix + r + "_" + (++_temp);
-                    before.Add(new DeclareStmt(name, type.Value, new DefaultExpr(type.Value) { RefType = refType }) { Addresses = [address], TypeName = refType });
+                    before.Add(new DeclareStmt(name, type.Value, new DefaultExpr(type.Value) { RefType = refType, RefTypeId = refTypeId }) { Addresses = [address], TypeName = refType });
                     armA.Add(new AssignStmt(name, l.Value) { Addresses = [address] });
                     armB.Add(new AssignStmt(name, rr.Value) { Addresses = [address] });
-                    target[r] = new Slot { Value = new LocalExpr(name, type.Value) { RefType = refType }, Width = l.Width };
+                    target[r] = new Slot { Value = new LocalExpr(name, type.Value) { RefType = refType, RefTypeId = refTypeId }, Width = l.Width };
                 }
             }
             MergeSlots(a.X, b.X, merged.X, "x");
@@ -1220,16 +1224,24 @@ public static class StructuredLifter
                     return;
             }
             if (field is null)
-                throw new LiftException($"0x{op.Address:X}: no field of {baseExpr.RefType ?? "this reference"} at offset 0x{offset:X} is known. No pointer was invented.");
+            {
+                var note = baseExpr.RefTypeId is int noted && _req.LayoutNotes is not null && _req.LayoutNotes.TryGetValue(noted, out var text) ? " " + text : "";
+                var message = note.Length == 0
+                    ? $"0x{op.Address:X}: no field of {baseExpr.RefType ?? "this reference"} at offset 0x{offset:X} is known. No pointer was invented."
+                    : $"0x{op.Address:X}: offset 0x{offset:X} of {baseExpr.RefType ?? "this reference"} is outside the lifter subset.{note}";
+                throw new LiftException(message);
+            }
             AccessField(op, baseExpr, field, st, stmts);
         }
 
         private IReadOnlyList<FieldContract> FieldsOf(Expr reference)
         {
-            if (reference is ThisExpr || reference.RefType == _selfType)
+            if (reference is ThisExpr || TypeIdentity.Same(reference.RefTypeId, reference.RefType, _selfTypeId, _selfType))
                 return _req.Contract.Fields;
-            if (reference.RefType is not null && _req.TypeFields is not null && _req.TypeFields.TryGetValue(reference.RefType, out var fields))
-                return fields;
+            if (reference.RefTypeId is int id && _req.TypeFieldsById is not null && _req.TypeFieldsById.TryGetValue(id, out var byId))
+                return byId;
+            if (reference.RefTypeId is null && reference.RefType is not null && _req.TypeFields is not null && _req.TypeFields.TryGetValue(reference.RefType, out var byName))
+                return byName;
             return [];
         }
 
@@ -1307,7 +1319,7 @@ public static class StructuredLifter
                 stmts.Add(new StoreFieldStmt(instance, field.Name, value) { Addresses = [op.Address] });
                 return;
             }
-            var load = new FieldExpr(instance, field.Name, field.Type) { RefType = field.Type == PrimitiveKind.Reference ? field.DeclaredType : null };
+            var load = new FieldExpr(instance, field.Name, field.Type) { RefType = field.Type == PrimitiveKind.Reference ? field.DeclaredType : null, RefTypeId = field.Type == PrimitiveKind.Reference ? field.DeclaredTypeId : null };
             var temp = NewTemp(load, op.Address, stmts);
             if (op.Vector)
                 st.V[op.Rt] = new Slot { Value = temp, Width = size * 8 };
@@ -1488,15 +1500,16 @@ public static class StructuredLifter
                 }
             }
             var calleeType = Qualified(callee.Namespace, callee.DeclaringType);
+            var sameType = TypeIdentity.Same(callee.DeclaringTypeId, calleeType, _selfTypeId, _selfType);
             if (callee.Name == ".ctor" && receiver is ThisExpr && _req.Contract.Name == ".ctor")
             {
-                var isBase = calleeType != _selfType;
+                var isBase = !sameType;
                 EvidenceNotes.Add($"0x{site:X}: call to {calleeType}::.ctor on this inside a constructor is the {(isBase ? "base" : "this")} constructor initializer.");
                 return new CtorInitializerStmt(isBase, args) { Addresses = [site] };
             }
             if (callee.Name is ".ctor" or ".cctor")
                 throw new LiftException($"0x{site:X}: a direct constructor call outside an object-creation pattern is not lifted.");
-            var baseCall = receiver is ThisExpr && (callee.IsVirtual || callee.IsAbstract) && calleeType != _selfType;
+            var baseCall = receiver is ThisExpr && (callee.IsVirtual || callee.IsAbstract) && !sameType;
             if (baseCall)
                 EvidenceNotes.Add($"0x{site:X}: direct call on this to virtual {calleeType}::{callee.Name} is emitted as base.{callee.Name}.");
             return new CallExpr(callee.Name, args, callee.ReturnType)
@@ -1505,7 +1518,8 @@ public static class StructuredLifter
                 StaticType = callee.IsStatic ? calleeType : null,
                 Target = target,
                 BaseCall = baseCall,
-                RefType = callee.ReturnType == PrimitiveKind.Reference ? callee.DeclaredReturnType : null
+                RefType = callee.ReturnType == PrimitiveKind.Reference ? callee.DeclaredReturnType : null,
+                RefTypeId = callee.ReturnType == PrimitiveKind.Reference ? callee.DeclaredReturnTypeId : null
             };
         }
 
@@ -1513,7 +1527,7 @@ public static class StructuredLifter
         {
             var name = "t" + (++_temp);
             stmts.Add(new DeclareStmt(name, value.Type, value) { Addresses = [address], TypeName = value.RefType });
-            return new LocalExpr(name, value.Type) { RefType = value.RefType };
+            return new LocalExpr(name, value.Type) { RefType = value.RefType, RefTypeId = value.RefTypeId };
         }
     }
 }

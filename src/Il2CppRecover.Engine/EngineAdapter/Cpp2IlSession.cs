@@ -23,6 +23,9 @@ public sealed class EngineMethod
     public bool IsStatic { get; init; }
     public string ReturnType { get; init; } = "unresolved";
     public IReadOnlyList<string> ParameterTypes { get; init; } = [];
+    public int DeclaringTypeId { get; init; } = -1;
+    public TypeRef? ReturnTypeRef { get; init; }
+    public IReadOnlyList<TypeRef> ParameterTypeRefs { get; init; } = [];
 }
 
 public sealed class EngineTypeInfo
@@ -32,9 +35,14 @@ public sealed class EngineTypeInfo
     public required string Namespace { get; init; }
     public required string Name { get; init; }
     public string? BaseType { get; init; }
+    public TypeRef? BaseTypeRef { get; init; }
     public string? DeclaringType { get; init; }
+    public int? DeclaringTypeId { get; init; }
+    public string DisplayName { get; init; } = "";
     public bool IsValueType { get; init; }
     public bool IsEnum { get; init; }
+    public bool IsOpenGeneric { get; init; }
+    public bool IsExplicitLayout { get; init; }
     public IReadOnlyList<EngineFieldInfo> Fields { get; init; } = [];
     public IReadOnlyList<string> Events { get; init; } = [];
 }
@@ -43,6 +51,7 @@ public sealed class EngineFieldInfo
 {
     public required string Name { get; init; }
     public required string Type { get; init; }
+    public TypeRef? TypeReference { get; init; }
     public string Access { get; init; } = "unresolved";
     public bool IsStatic { get; init; }
     public int? Offset { get; init; }
@@ -88,6 +97,7 @@ public static class Cpp2IlSession
                     {
                         var fields = new List<EngineFieldInfo>();
                         var fieldOrdinal = 0;
+                        var openGeneric = IsOpenGeneric(type);
                         foreach (var field in type.Fields ?? [])
                         {
                             var attr = type.FieldAttributes is { } attrs && fieldOrdinal < attrs.Length ? attrs[fieldOrdinal] : 0;
@@ -119,15 +129,17 @@ public static class Cpp2IlSession
                                     constant = null;
                                 }
                             }
+                            var fieldRef = ToRef(field.FieldType, field.RawFieldType?.Byref == 1);
                             fields.Add(new EngineFieldInfo
                             {
                                 ConstantValue = constant,
                                 IsLiteral = isLiteral,
                                 Name = field.Name ?? "",
-                                Type = field.FieldType?.ToString() ?? "unresolved",
+                                Type = fieldRef.Display,
+                                TypeReference = fieldRef,
                                 Access = Metadata.MetadataNames.Access((int)attr & 7),
                                 IsStatic = isStatic,
-                                Offset = offset
+                                Offset = openGeneric && !isStatic ? null : offset
                             });
                             fieldOrdinal++;
                         }
@@ -144,9 +156,14 @@ public static class Cpp2IlSession
                             Namespace = type.Namespace ?? "",
                             Name = type.Name ?? "",
                             BaseType = type.BaseType?.ToString(),
+                            BaseTypeRef = type.BaseType is null ? null : ToRef(type.BaseType, type.RawBaseType?.Byref == 1),
                             DeclaringType = type.DeclaringType?.Name,
+                            DeclaringTypeId = IndexOf(type.DeclaringType),
+                            DisplayName = type.FullName ?? "",
                             IsValueType = type.IsValueType,
                             IsEnum = type.IsEnumType,
+                            IsOpenGeneric = openGeneric,
+                            IsExplicitLayout = (type.Attributes & System.Reflection.TypeAttributes.ExplicitLayout) != 0,
                             Fields = fields,
                             Events = events
                         });
@@ -164,13 +181,22 @@ public static class Cpp2IlSession
                             }
 
                             var parameterTypes = new List<string>();
+                            var parameterRefs = new List<TypeRef>();
                             var returnType = "unresolved";
+                            TypeRef? returnRef = null;
                             try
                             {
-                                if (method.ReturnType is not null)
-                                    returnType = method.ReturnType.ToString() ?? "unresolved";
+                                returnRef = ToRef(method.ReturnType, method.RawReturnType?.Byref == 1);
+                                returnType = returnRef.Display;
                                 if (method.Parameters is not null)
-                                    parameterTypes.AddRange(method.Parameters.Select(p => p.Type?.ToString() ?? "unresolved"));
+                                {
+                                    foreach (var parameter in method.Parameters)
+                                    {
+                                        var parameterRef = ToRef(parameter.Type, parameter.RawType?.Byref == 1);
+                                        parameterRefs.Add(parameterRef);
+                                        parameterTypes.Add(parameterRef.Display);
+                                    }
+                                }
                             }
                             catch (Exception ex)
                             {
@@ -184,10 +210,13 @@ public static class Cpp2IlSession
                                 Namespace = type.Namespace ?? "",
                                 Image = image.Name ?? "",
                                 MetadataIndex = method.MethodIndex.IsNonNull ? method.MethodIndex.Value : -1,
+                                DeclaringTypeId = type.TypeIndex.IsNonNull ? type.TypeIndex.Value : -1,
                                 VirtualAddress = address,
                                 IsStatic = method.IsStatic,
                                 ReturnType = returnType,
-                                ParameterTypes = parameterTypes
+                                ReturnTypeRef = returnRef,
+                                ParameterTypes = parameterTypes,
+                                ParameterTypeRefs = parameterRefs
                             });
                             _ = pointerError;
                         }
@@ -218,6 +247,92 @@ public static class Cpp2IlSession
                 LibLogger.Writer = previous;
             }
         }
+    }
+
+    private static int? IndexOf(LibCpp2IL.Metadata.Il2CppTypeDefinition? type) =>
+        type is { TypeIndex.IsNonNull: true } ? type.TypeIndex.Value : null;
+
+    private static bool IsOpenGeneric(LibCpp2IL.Metadata.Il2CppTypeDefinition type)
+    {
+        var current = type;
+        var guard = 0;
+        while (guard++ < 32)
+        {
+            if (current.GenericContainer is not null)
+                return true;
+            var outer = current.DeclaringType;
+            if (outer is null)
+                return false;
+            current = outer;
+        }
+        return false;
+    }
+
+    private static TypeRef ToRef(LibCpp2IL.Reflection.Il2CppTypeReflectionData? data, bool byref)
+    {
+        if (data is null)
+            return new TypeRef { Kind = TypeRefKind.Unresolved, Display = "unresolved" };
+        TypeRef core;
+        if (data.isArray)
+        {
+            core = new TypeRef
+            {
+                Kind = TypeRefKind.Array,
+                Element = ToRef(data.arrayType, false),
+                Rank = data.arrayRank,
+                Display = data.ToString() ?? "unresolved"
+            };
+        }
+        else if (!data.isType)
+        {
+            int? position = null;
+            var methodGeneric = false;
+            try
+            {
+                var parameter = data.GenericParameter;
+                if (parameter is not null)
+                {
+                    position = parameter.genericParameterIndexInOwner;
+                    methodGeneric = parameter.Type == LibCpp2IL.BinaryStructures.Il2CppTypeEnum.IL2CPP_TYPE_MVAR;
+                }
+            }
+            catch (Exception)
+            {
+                position = data.variableGenericParamIndex.IsNonNull ? data.variableGenericParamIndex.Value : null;
+            }
+            core = new TypeRef
+            {
+                Kind = TypeRefKind.GenericParameter,
+                GenericParameterName = data.variableGenericParamName,
+                GenericParameterIndex = position ?? (data.variableGenericParamIndex.IsNonNull ? data.variableGenericParamIndex.Value : null),
+                MethodGenericParameter = methodGeneric,
+                Display = data.ToString() ?? data.variableGenericParamName ?? "unresolved"
+            };
+        }
+        else if (data.isGenericType)
+        {
+            core = new TypeRef
+            {
+                Kind = TypeRefKind.GenericInstance,
+                DefinitionIndex = IndexOf(data.baseType),
+                Arguments = (data.genericParams ?? []).Select(argument => ToRef(argument, false)).ToList(),
+                Display = data.ToString() ?? "unresolved"
+            };
+        }
+        else
+        {
+            core = new TypeRef
+            {
+                Kind = TypeRefKind.Definition,
+                DefinitionIndex = IndexOf(data.baseType),
+                Display = data.ToString() ?? "unresolved"
+            };
+        }
+        if (data.isPointer)
+            core = new TypeRef { Kind = TypeRefKind.Pointer, Element = core, Display = data.ToString() ?? core.Display + "*" };
+        if (byref)
+            core = new TypeRef { Kind = TypeRefKind.ByRef, Element = core, Display = core.Display + "&" };
+        return core;
     }
 
     private sealed class SilentLog : LogWriter

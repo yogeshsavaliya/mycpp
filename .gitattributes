@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+*.apk binary
+*.xapk binary
+*.so binary
+*.dat binary

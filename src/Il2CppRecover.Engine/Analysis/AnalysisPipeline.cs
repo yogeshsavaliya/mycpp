@@ -109,10 +109,12 @@ public static class AnalysisPipeline
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        var methods = BuildMethods(catalog, engine, binaryBytes, elf, options, cancellationToken, progress, trace, pace);
-        var report = RecoveryReportBuilder.Build(methods, options.GameplayFirst ? "gameplay-first" : "full");
+        var methods = BuildMethods(catalog, engine, binaryBytes, elf, options, cancellationToken, progress, trace, pace, out var tables);
+        var report = RecoveryReportBuilder.Build(methods, options.GameplayFirst ? "gameplay-first" : "full", tables?.SameNameGroups ?? 0);
+        if (tables is not null)
+            File.WriteAllText(Path.Combine(outputDirectory, "type-identity.json"), JsonDefaults.Serialize(TypeIdentitySummary(tables)));
         Log("Writing output");
-        OutputWriter.Write(outputDirectory, inventory, catalog, methods, report, logs, engine?.Diagnostic, engine?.Types);
+        OutputWriter.Write(outputDirectory, inventory, catalog, methods, report, logs, engine?.Diagnostic, engine?.Types, engine?.Methods);
         return new AnalysisOutput
         {
             Inventory = inventory,
@@ -125,9 +127,10 @@ public static class AnalysisPipeline
         };
     }
 
-    private static List<MethodRecord> BuildMethods(MetadataCatalog? catalog, EngineLoadResult? engine, byte[]? binary, ElfImage? elf, AnalysisOptions options, CancellationToken cancellationToken, IProgress<ProgressEvent>? progress, AnalysisTrace trace, Pace pace)
+    private static List<MethodRecord> BuildMethods(MetadataCatalog? catalog, EngineLoadResult? engine, byte[]? binary, ElfImage? elf, AnalysisOptions options, CancellationToken cancellationToken, IProgress<ProgressEvent>? progress, AnalysisTrace trace, Pace pace, out TypeTables? tables)
     {
         var records = new List<MethodRecord>();
+        tables = null;
         if (catalog is null)
             return records;
 
@@ -139,7 +142,8 @@ public static class AnalysisPipeline
             catalog.Images.SelectMany(i => i.Types),
             t => t.MetadataIndex,
             t => t.Namespace + "." + t.Name + " index=" + t.MetadataIndex);
-        var ctx = BuildImageContext(catalog, catalogTypes, engine, nativeByIndex, binary, elf, options, cancellationToken, progress, trace, pace);
+        tables = TypeTables.Build(engine?.Types ?? []);
+        var ctx = BuildImageContext(catalog, catalogTypes, tables, nativeByIndex, binary, elf, options, cancellationToken, progress, trace, pace);
         var orderedAddresses = nativeByIndex.Values.Select(m => m.VirtualAddress).Where(a => a != 0).Distinct().Order().ToList();
         var framework = 0;
         var bodyTotal = 0;
@@ -208,8 +212,11 @@ public static class AnalysisPipeline
         public Dictionary<ulong, MethodContract> CallTargets = [];
         public int SharedNativeAddresses;
         public Dictionary<string, IReadOnlyList<FieldContract>> TypeFields = new(StringComparer.Ordinal);
+        public Dictionary<int, IReadOnlyList<FieldContract>> TypeFieldsById = [];
+        public Dictionary<int, string> LayoutNotes = [];
         public Dictionary<int, EngineTypeInfo> TypesByIndex = [];
-        public Dictionary<string, EngineTypeInfo> TypesByFullName = new(StringComparer.Ordinal);
+        public Dictionary<string, List<EngineTypeInfo>> TypesByName = new(StringComparer.Ordinal);
+        public int SameNameGroups;
         public IReadOnlyDictionary<ulong, RuntimeHelper> Helpers = new Dictionary<ulong, RuntimeHelper>();
         public DiscoveryCache Cache { get; } = new(64);
     }
@@ -237,38 +244,21 @@ public static class AnalysisPipeline
         return current.Namespace;
     }
 
-    private static ImageContext BuildImageContext(MetadataCatalog catalog, IReadOnlyDictionary<int, CatalogType> catalogTypes, EngineLoadResult? engine, Dictionary<int, EngineMethod> nativeByIndex, byte[]? binary, ElfImage? elf, AnalysisOptions options, CancellationToken cancellationToken, IProgress<ProgressEvent>? progress, AnalysisTrace trace, Pace pace)
+    private static ImageContext BuildImageContext(MetadataCatalog catalog, IReadOnlyDictionary<int, CatalogType> catalogTypes, TypeTables built, Dictionary<int, EngineMethod> nativeByIndex, byte[]? binary, ElfImage? elf, AnalysisOptions options, CancellationToken cancellationToken, IProgress<ProgressEvent>? progress, AnalysisTrace trace, Pace pace)
     {
-        var ctx = new ImageContext();
-        foreach (var t in engine?.Types ?? [])
+        var ctx = new ImageContext
         {
-            if (t.MetadataIndex < 0)
-                continue;
-            if (ctx.TypesByIndex.TryGetValue(t.MetadataIndex, out var existing))
-            {
-                throw new InvalidOperationException(
-                    "Two engine types share metadata index " + t.MetadataIndex +
-                    ". First: " + existing.Image + " " + existing.Namespace + "." + existing.Name +
-                    ". Second: " + t.Image + " " + t.Namespace + "." + t.Name + ".");
-            }
-            ctx.TypesByIndex.Add(t.MetadataIndex, t);
-        }
-        foreach (var (index, info) in ctx.TypesByIndex)
+            TypesByIndex = built.ById,
+            TypesByName = built.ByName,
+            TypeFieldsById = built.FieldsById,
+            LayoutNotes = built.LayoutNotes,
+            SameNameGroups = built.SameNameGroups
+        };
+        trace.Write("type-identity", new Dictionary<string, object?>
         {
-            if (!catalogTypes.TryGetValue(index, out var ct))
-                continue;
-            var name = FullName(ct, catalogTypes);
-            if (ctx.TypesByFullName.TryGetValue(name, out var existing))
-            {
-                throw new InvalidOperationException(
-                    "Two types share the name " + name +
-                    ". First: " + existing.Image + " index " + existing.MetadataIndex +
-                    ". Second: " + info.Image + " index " + info.MetadataIndex + ".");
-            }
-            ctx.TypesByFullName.Add(name, info);
-        }
-        foreach (var (name, info) in ctx.TypesByFullName)
-            ctx.TypeFields[name] = LifterFields(info, ctx);
+            ["definitions"] = built.ById.Count,
+            ["sameNameGroups"] = built.SameNameGroups
+        });
 
         if (binary is null || elf is null)
             return ctx;
@@ -329,56 +319,69 @@ public static class AnalysisPipeline
         return ctx;
     }
 
-    private static bool TryKind(string text, ImageContext ctx, out PrimitiveKind kind, out string? why)
+    private static bool TryKind(TypeRef? type, string display, ImageContext ctx, out PrimitiveKind kind, out string? why)
     {
         why = null;
-        if (TryPrimitive(text, out kind))
-            return true;
-        var trimmed = text.Trim();
-        if (trimmed is "System.Void" or "Void")
+        kind = PrimitiveKind.Void;
+        if (type is null || type.Kind == TypeRefKind.Unresolved)
         {
-            kind = PrimitiveKind.Void;
-            return true;
-        }
-        if (trimmed.EndsWith('&') || trimmed.EndsWith('*'))
-        {
-            why = "by-reference or pointer type '" + trimmed + "'";
+            why = "type '" + display + "' has no metadata type reference, so its kind is unknown";
             return false;
         }
-        if (trimmed is "unresolved" || trimmed.Length == 0 || trimmed is "System.Byte" or "System.SByte" or "System.Int16" or "System.UInt16" or "System.Char" or "Byte" or "SByte" or "Int16" or "UInt16" or "Char")
+        if (type.Kind == TypeRefKind.ByRef)
         {
-            why = trimmed.Length == 0 || trimmed == "unresolved"
-                ? "type was not resolved from the native type table"
-                : "integer type '" + trimmed + "' is narrower than 32 bits and is not lifted";
+            why = "by-reference type '" + type.Display + "'";
             return false;
         }
-        if (trimmed.EndsWith("[]", StringComparison.Ordinal) || trimmed is "System.String" or "System.Object" or "String" or "Object")
+        if (type.Kind == TypeRefKind.Pointer)
+        {
+            why = "pointer type '" + type.Display + "'";
+            return false;
+        }
+        if (type.Kind == TypeRefKind.GenericParameter)
+        {
+            why = "generic parameter '" + type.Display + "'";
+            return false;
+        }
+        if (type.Kind == TypeRefKind.Array)
         {
             kind = PrimitiveKind.Reference;
             return true;
         }
-        var definition = trimmed;
-        var lt = definition.IndexOf('<');
-        if (lt > 0 && !definition.StartsWith('<'))
-            definition = definition[..lt];
-        if (ctx.TypesByFullName.TryGetValue(definition, out var info))
+        if (IsNarrow(type.Display))
         {
-            if (info.IsEnum)
-            {
-                why = "enum type '" + trimmed + "' (enum values are not reconstructed in bodies yet)";
-                return false;
-            }
-            if (info.IsValueType)
-            {
-                why = "value type '" + trimmed + "' (struct passing and returning are not modelled)";
-                return false;
-            }
-            kind = PrimitiveKind.Reference;
-            return true;
+            why = "integer type '" + type.Display + "' is narrower than 32 bits and is not lifted";
+            return false;
         }
-        why = "type '" + trimmed + "' was not found in the loaded type table, so its kind is unknown";
-        return false;
+        if (TryPrimitive(type.Display, out kind))
+            return true;
+        if (type.DefinitionIndex is not int id || !ctx.TypesByIndex.TryGetValue(id, out var info))
+        {
+            why = "type '" + type.Display + "' was not found by metadata index" + (type.DefinitionIndex is int missing ? " " + missing : "") + ", so its kind is unknown";
+            return false;
+        }
+        if (info.IsEnum)
+        {
+            why = "enum type '" + type.Display + "' (enum values are not reconstructed in bodies yet)";
+            return false;
+        }
+        if (info.IsValueType)
+        {
+            why = "value type '" + type.Display + "' (struct passing and returning are not modelled)";
+            return false;
+        }
+        kind = PrimitiveKind.Reference;
+        return true;
     }
+
+    private static bool IsNarrow(string text)
+    {
+        var trimmed = text.Replace("System.", "", StringComparison.Ordinal).Trim();
+        return trimmed is "Byte" or "SByte" or "Int16" or "UInt16" or "Char";
+    }
+
+    private static int? DefinitionId(TypeRef? type) =>
+        type is { Kind: TypeRefKind.Definition or TypeRefKind.GenericInstance, DefinitionIndex: int id } ? id : null;
 
     private static MethodContract CalleeContract(CatalogImage image, string declaringType, string ns, CatalogMethod method, EngineMethod native, ImageContext ctx)
     {
@@ -390,15 +393,22 @@ public static class AnalysisPipeline
         {
             for (var i = 0; i < method.Parameters.Count; i++)
             {
-                if (!TryKind(native.ParameterTypes[i], ctx, out var k, out var why))
+                var parameterRef = i < native.ParameterTypeRefs.Count ? native.ParameterTypeRefs[i] : null;
+                if (!TryKind(parameterRef, native.ParameterTypes[i], ctx, out var k, out var why))
                 {
                     unsupported ??= "parameter " + method.Parameters[i].Name + ": " + why;
                     k = PrimitiveKind.Reference;
                 }
-                parameters.Add(new ParameterContract { Name = method.Parameters[i].Name, Type = k, DeclaredType = native.ParameterTypes[i] });
+                parameters.Add(new ParameterContract
+                {
+                    Name = method.Parameters[i].Name,
+                    Type = k,
+                    DeclaredType = native.ParameterTypes[i],
+                    DeclaredTypeId = DefinitionId(parameterRef)
+                });
             }
         }
-        if (!TryKind(native.ReturnType, ctx, out var ret, out var retWhy))
+        if (!TryKind(native.ReturnTypeRef, native.ReturnType, ctx, out var ret, out var retWhy))
         {
             unsupported ??= "return " + retWhy;
             ret = PrimitiveKind.Void;
@@ -407,6 +417,7 @@ public static class AnalysisPipeline
         {
             Name = method.Name,
             DeclaringType = declaringType,
+            DeclaringTypeId = native.DeclaringTypeId >= 0 ? native.DeclaringTypeId : null,
             Namespace = ns,
             Assembly = image.Name,
             IsStatic = method.IsStatic,
@@ -415,6 +426,7 @@ public static class AnalysisPipeline
             IsGeneric = method.IsGeneric,
             ReturnType = ret,
             DeclaredReturnType = native.ReturnType,
+            DeclaredReturnTypeId = DefinitionId(native.ReturnTypeRef),
             Parameters = parameters,
             UnsupportedReason = unsupported
         };
@@ -503,6 +515,8 @@ public static class AnalysisPipeline
                         Space = ctx.Space,
                         CallTargets = ctx.CallTargets,
                         TypeFields = ctx.TypeFields,
+                        TypeFieldsById = ctx.TypeFieldsById,
+                        LayoutNotes = ctx.LayoutNotes,
                         RuntimeHelpers = ctx.Helpers,
                         Budget = options.Budget,
                         CancellationToken = cancellationToken,
@@ -619,7 +633,7 @@ public static class AnalysisPipeline
             error = "Instance method of a value type: 'this' is a managed pointer to the struct, which is not modelled.";
             return false;
         }
-        if (!TryKind(native.ReturnType, ctx, out var ret, out var retWhy))
+        if (!TryKind(native.ReturnTypeRef, native.ReturnType, ctx, out var ret, out var retWhy))
         {
             error = "Return type is outside the lifter subset: " + retWhy + ". No body was invented.";
             return false;
@@ -632,48 +646,56 @@ public static class AnalysisPipeline
         var parameters = new List<ParameterContract>();
         for (var i = 0; i < method.Parameters.Count; i++)
         {
-            if (!TryKind(native.ParameterTypes[i], ctx, out var primitive, out var why))
+            var parameterRef = i < native.ParameterTypeRefs.Count ? native.ParameterTypeRefs[i] : null;
+            if (!TryKind(parameterRef, native.ParameterTypes[i], ctx, out var primitive, out var why))
             {
                 error = "Parameter " + method.Parameters[i].Name + " is outside the lifter subset: " + why + ".";
                 return false;
             }
-            parameters.Add(new ParameterContract { Name = method.Parameters[i].Name, Type = primitive, DeclaredType = native.ParameterTypes[i] });
+            parameters.Add(new ParameterContract
+            {
+                Name = method.Parameters[i].Name,
+                Type = primitive,
+                DeclaredType = native.ParameterTypes[i],
+                DeclaredTypeId = DefinitionId(parameterRef)
+            });
         }
         contract = new MethodContract
         {
             Name = method.Name,
             DeclaringType = type.Name,
+            DeclaringTypeId = type.MetadataIndex,
             Namespace = type.Namespace,
             Assembly = image.Name,
             IsStatic = method.IsStatic,
             IsGeneric = method.IsGeneric,
             ReturnType = ret,
             DeclaredReturnType = native.ReturnType,
+            DeclaredReturnTypeId = DefinitionId(native.ReturnTypeRef),
             Parameters = parameters,
-            Fields = typeInfo is null ? [] : LifterFields(typeInfo, ctx)
+            Fields = ctx.TypeFieldsById.TryGetValue(type.MetadataIndex, out var layout) ? layout : []
         };
         return true;
     }
 
-    private static IReadOnlyList<FieldContract> LifterFields(EngineTypeInfo typeInfo, ImageContext ctx)
+    private static object TypeIdentitySummary(TypeTables tables)
     {
-        var fields = new List<FieldContract>();
-        foreach (var field in typeInfo.Fields)
-        {
-            if (field.IsStatic || field.IsLiteral || field.Offset is not int offset)
-                continue;
-            if (!TryKind(field.Type, ctx, out var primitive, out _) || primitive == PrimitiveKind.Void)
-                continue;
-            fields.Add(new FieldContract
+        var groups = tables.ByName.Where(pair => pair.Value.Count > 1).OrderByDescending(pair => pair.Value.Count).Take(40)
+            .Select(pair => new
             {
-                Name = field.Name,
-                Type = primitive,
-                DeclaredType = field.Type,
-                Access = field.Access,
-                InstanceOffset = offset
-            });
-        }
-        return fields;
+                name = pair.Key,
+                count = pair.Value.Count,
+                types = pair.Value.Take(8).Select(type => TypeTables.Describe(type)).ToList()
+            }).ToList();
+        var watched = tables.ById.Values.Where(type => type.Name is "BodypartController" or "BoosterButtonController").Select(type => new
+        {
+            type = TypeTables.Describe(type),
+            fields = tables.FieldsById.TryGetValue(type.MetadataIndex, out var fields)
+                ? fields.Select(field => new { field.Name, offset = field.InstanceOffset, owner = field.OwnerType, ownerId = field.OwnerTypeId }).ToList()
+                : [],
+            note = tables.LayoutNotes.TryGetValue(type.MetadataIndex, out var note) ? note : null
+        }).ToList();
+        return new { sameNameGroups = tables.SameNameGroups, groups, watched };
     }
 
     public static string ResolveDeclaredTypes(CatalogMethod method, EngineMethod? native, IList<string> diagnostics, out IReadOnlyList<string> parameterTypes)
