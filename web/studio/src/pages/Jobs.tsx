@@ -83,10 +83,16 @@ export function JobsPage() {
                 </>
               ) : null}
               {job.error && <div className="error">{job.error}</div>}
+              {job.failureDetail && (
+                <details>
+                  <summary>Stack trace, exit {job.exitCode ?? "unknown"}, stage {job.stage || "unknown"}</summary>
+                  <pre className="log">{job.failureDetail}</pre>
+                </details>
+              )}
               <div className="row">
                 {isRunning(job.state) && <button className="btn-secondary" onClick={() => cancel().catch((reason: Error) => setError(reason.message))}>Cancel</button>}
                 {!isRunning(job.state) && <button className="btn-secondary" onClick={() => retry().catch((reason: Error) => setError(reason.message))}>Retry</button>}
-                {!isRunning(job.state) && job.state !== "Cancelled" && job.state !== "Failed" && <Link className="btn" to={"/results/" + job.projectId}>Open results</Link>}
+                {!isRunning(job.state) && job.state !== "Cancelled" && job.state !== "Failed" && job.state !== "TimedOut" && <Link className="btn" to={"/results/" + job.projectId}>Open results</Link>}
               </div>
               <h3>Log</h3>
               <div className="log">{job.log || "No log lines yet."}</div>

@@ -72,6 +72,8 @@ public sealed record CallExpr(string Name, IReadOnlyList<Expr> Args, PrimitiveKi
     public Expr? Receiver { get; init; }
     public string? StaticType { get; init; }
     public ulong? Target { get; init; }
+    /// <summary>A direct call on this to a virtual or abstract method declared on another type.</summary>
+    public bool BaseCall { get; init; }
     public override string Describe() => (Receiver is null ? StaticType is null ? "" : StaticType + "." : Receiver.Describe() + ".") + $"{Name}({string.Join(", ", Args.Select(a => a.Describe()))})";
 }
 

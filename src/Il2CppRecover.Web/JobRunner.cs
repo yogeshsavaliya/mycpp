@@ -224,7 +224,7 @@ public sealed class JobRunner(StudioDatabase database, IAnalysisProcess process)
             }
             if (result.Outcome == "timeout")
             {
-                database.Finish(job.Id, "Failed", "Timed out", 5, "The analysis exceeded the time limit and was stopped.");
+                database.Finish(job.Id, "TimedOut", "Timed out", 5, "The analysis exceeded the time limit and was stopped.");
                 return;
             }
             if (result.Outcome == "stopped")
@@ -236,7 +236,7 @@ public sealed class JobRunner(StudioDatabase database, IAnalysisProcess process)
             if (result.ExitCode != 0 || result.Outcome == "crashed")
             {
                 var stderr = result.Stderr.Length > 0 ? result.Stderr : string.Join('\n', tail);
-                database.Finish(job.Id, "Failed", "Failed", result.ExitCode, FailureMessage(job.OutputDir, stderr, result.ExitCode));
+                database.Finish(job.Id, "Failed", "Failed", result.ExitCode, FailureMessage(job.OutputDir, stderr, result.ExitCode), stderr);
                 TryRememberInventory(job);
                 return;
             }
@@ -250,27 +250,36 @@ public sealed class JobRunner(StudioDatabase database, IAnalysisProcess process)
             TryRememberInventory(job);
             var report = JsonSerializer.Deserialize<RecoveryReport>(File.ReadAllText(Path.Combine(job.OutputDir, "recovery-report.json")), JsonDefaults.Options);
             var counts = report?.Counts;
+            var internalErrors = counts?.InternalErrors ?? 0;
             var limited = counts is null
                 || counts.FullyRecoveredUniqueBodies == 0
                 || counts.PlaceholderBodies > 0
                 || counts.MetadataOnly > 0
                 || counts.Unsupported > 0
-                || counts.Failed > 0
+                || counts.Failed > internalErrors
                 || counts.PartiallyRecovered > 0
                 || counts.DisassembledOnly > 0
                 || counts.NotAnalyzed > 0
                 || counts.AnalysisBudgetExceeded > 0
                 || counts.TimedOut > 0;
-            database.Finish(
-                job.Id,
-                limited ? "CompletedWithLimitations" : "Completed",
-                limited ? "Finished with unrecovered methods" : "Finished",
-                0,
-                null);
+            if (internalErrors > 0)
+            {
+                var samples = report?.InternalErrorSamples ?? [];
+                database.Finish(job.Id, "CompletedWithInternalErrors", "Completed with internal errors", 0, internalErrors + " method" + (internalErrors == 1 ? "" : "s") + " failed internally. " + string.Join(" ", samples.Take(3)), string.Join("\n", samples));
+            }
+            else
+            {
+                database.Finish(
+                    job.Id,
+                    limited ? "CompletedWithLimitations" : "Completed",
+                    limited ? "Finished with unrecovered methods" : "Finished",
+                    0,
+                    null);
+            }
         }
         catch (Exception ex)
         {
-            database.Finish(job.Id, "Failed", "Failed", 4, "The analysis stopped because of an internal error: " + ex.GetType().Name + ": " + ex.Message);
+            database.Finish(job.Id, "Failed", "Failed", 4, "The analysis stopped because of an internal error: " + ex.GetType().Name + ": " + ex.Message, ex.ToString());
         }
         finally
         {

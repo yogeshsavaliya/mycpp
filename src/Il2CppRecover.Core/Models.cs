@@ -203,6 +203,8 @@ public sealed class MethodRecord
     public string? CandidateCSharp { get; init; }
     public IReadOnlyList<ProvenanceLink> Provenance { get; init; } = [];
     public int SharedImplementationCount { get; set; } = 1;
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? InternalStack { get; init; }
 }
 
 public sealed class RecoveryCounts
@@ -222,6 +224,8 @@ public sealed class RecoveryCounts
     public int AnalysisBudgetExceeded { get; init; }
     public int TimedOut { get; init; }
     public int NotAnalyzed { get; init; }
+    public int InternalErrors { get; init; }
+    public int SharedNativeAddresses { get; init; }
     public int CompilationChecked { get; init; }
     public int BehaviourCheckedOnFixtures { get; init; }
     public required string Denominator { get; init; }
@@ -257,6 +261,7 @@ public sealed class RecoveryReport
     public string BodyAnalysisScope { get; init; } = "full";
     public IReadOnlyList<StageBreakdown> Breakdown { get; init; } = [];
     public required string BehaviouralValidation { get; init; }
+    public IReadOnlyList<string> InternalErrorSamples { get; init; } = [];
     public required IReadOnlyList<string> Limitations { get; init; }
 }
 

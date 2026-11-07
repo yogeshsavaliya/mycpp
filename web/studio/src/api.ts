@@ -45,6 +45,8 @@ export type Job = {
   startedUtc: string | null;
   finishedUtc: string | null;
   error: string | null;
+  exitCode: number | null;
+  failureDetail: string | null;
   log: string;
   methodDone: number | null;
   methodTotal: number | null;
@@ -163,7 +165,7 @@ export function elapsed(start: string | null, end: string | null): string {
 }
 
 export function isRunning(state: string | null): boolean {
-  return !!state && !["Completed", "CompletedWithLimitations", "Failed", "Cancelled"].includes(state);
+  return !!state && !["Completed", "CompletedWithLimitations", "CompletedWithInternalErrors", "Failed", "TimedOut", "Cancelled"].includes(state);
 }
 
 export async function download(path: string, filename: string): Promise<void> {

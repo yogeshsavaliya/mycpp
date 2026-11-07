@@ -128,17 +128,37 @@ public static class OutputWriter
         }
     }
 
+    private static Dictionary<int, T> IndexTypes<T>(IEnumerable<T> items, Func<T, int> index, Func<T, string> describe)
+    {
+        var map = new Dictionary<int, T>();
+        foreach (var item in items)
+        {
+            var key = index(item);
+            if (key < 0)
+                continue;
+            if (map.TryGetValue(key, out var existing))
+            {
+                throw new InvalidOperationException(
+                    "Two type records share metadata index " + key +
+                    ". First: " + describe(existing) +
+                    ". Second: " + describe(item) + ".");
+            }
+            map.Add(key, item);
+        }
+        return map;
+    }
+
     /// <summary>
     /// One file per top-level catalog type. Nested types are declared inside the parent,
     /// and types are keyed by metadata index so two nested types with the same simple name stay distinct.
     /// </summary>
     private static void WriteCatalogSources(string codeDir, MetadataCatalog catalog, IReadOnlyList<MethodRecord> methods, IReadOnlyList<EngineTypeInfo>? types)
     {
-        var factsByIndex = (types ?? []).Where(t => t.MetadataIndex >= 0).GroupBy(t => t.MetadataIndex).ToDictionary(g => g.Key, g => g.First());
+        var factsByIndex = IndexTypes(types ?? [], t => t.MetadataIndex, t => t.Image + " " + t.Namespace + "." + t.Name);
         var methodsByType = methods.Where(m => m.TypeMetadataIndex is int).GroupBy(m => m.TypeMetadataIndex!.Value).ToDictionary(g => g.Key, g => g.ToList());
         foreach (var image in catalog.Images)
         {
-            var byIndex = image.Types.GroupBy(t => t.MetadataIndex).ToDictionary(g => g.Key, g => g.First());
+            var byIndex = IndexTypes(image.Types, t => t.MetadataIndex, t => image.Name + " " + t.Namespace + "." + t.Name);
             var declarations = new Dictionary<int, CSharpEmitter.TypeDeclaration>();
             foreach (var type in image.Types)
             {

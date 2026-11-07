@@ -503,6 +503,8 @@ public static class StudioApi
         startedUtc = job.StartedUtc,
         finishedUtc = job.FinishedUtc,
         error = job.Error,
+        exitCode = job.ExitCode,
+        failureDetail = job.FailureDetail,
         log = job.Log,
         methodDone = job.MethodDone,
         methodTotal = job.MethodTotal,
@@ -520,13 +522,15 @@ public static class StudioApi
         "GeneratingOutput" => "Generating Output",
         "Completed" => "Completed",
         "CompletedWithLimitations" => "Completed with Limitations",
+        "CompletedWithInternalErrors" => "Completed with internal errors",
         "Failed" => "Failed",
+        "TimedOut" => "Timed out",
         "Cancelled" => "Cancelled",
         _ => state
     };
 
     private static bool IsTerminal(string state) =>
-        state is "Completed" or "CompletedWithLimitations" or "Failed" or "Cancelled";
+        state is "Completed" or "CompletedWithLimitations" or "CompletedWithInternalErrors" or "Failed" or "TimedOut" or "Cancelled";
 
     private static PackageOrigins? ReadOrigins(ProjectRecord project)
     {

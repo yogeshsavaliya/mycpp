@@ -301,7 +301,7 @@ public class StudioWebTests
     }
 
     private static bool IsTerminal(string state) =>
-        state is "Completed" or "CompletedWithLimitations" or "Failed" or "Cancelled";
+        state is "Completed" or "CompletedWithLimitations" or "CompletedWithInternalErrors" or "Failed" or "TimedOut" or "Cancelled";
 
     private sealed class CrashingProcess : IAnalysisProcess
     {

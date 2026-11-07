@@ -9,6 +9,7 @@ public static class RecoveryReportBuilder
             .GroupBy(m => m.NativeVirtualAddress)
             .ToList();
         var fully = unique.Count(g => g.Any(m => m.Status == MethodRecoveryStatus.RecoveredUnvalidated && !m.CSharpIsPlaceholder));
+        var internalErrors = methods.Where(m => m.Diagnostics.Any(d => d.StartsWith("InternalError:", StringComparison.Ordinal))).ToList();
         return new RecoveryReport
         {
             ToolName = ToolInfo.Name,
@@ -44,11 +45,14 @@ public static class RecoveryReportBuilder
                 AnalysisBudgetExceeded = methods.Count(m => m.Status == MethodRecoveryStatus.AnalysisBudgetExceeded),
                 TimedOut = methods.Count(m => m.Status == MethodRecoveryStatus.TimedOut),
                 NotAnalyzed = methods.Count(m => m.Status == MethodRecoveryStatus.NotAnalyzed),
+                InternalErrors = internalErrors.Count,
+                SharedNativeAddresses = unique.Count(g => g.Count() > 1),
                 CompilationChecked = methods.Count(m => m.Compilation == "Compiled"),
                 BehaviourCheckedOnFixtures = methods.Count(m => m.Behaviour == "CheckedOnFixture"),
                 Denominator = "FullyRecoveredUniqueBodies counts distinct native addresses whose lift status is RecoveredUnvalidated. Abstract methods, external methods, metadata-only methods, placeholders, and extra metadata rows that share one address are not added to that numerator."
             },
             BehaviouralValidation = "No behavioural validation was run for this input. Passing a synthetic fixture does not certify an arbitrary APK. Compilation of a placeholder is not behavioural equivalence.",
+            InternalErrorSamples = internalErrors.Take(5).Select(m => m.Assembly + " " + m.Signature + ": " + m.Diagnostics.First(d => d.StartsWith("InternalError:", StringComparison.Ordinal))).ToList(),
             Limitations =
             [
                 "Cpp2IL " + ToolInfo.Cpp2IlTag + " (" + ToolInfo.Cpp2IlCommit + ") is used only to load metadata and locate method pointers. Cpp2IL.Core analysis is not invoked. Method bodies come from the structured ARM64 lifter.",
@@ -101,6 +105,8 @@ public static class RecoveryReportBuilder
             return "analysis budget exceeded";
         if (m.Status == MethodRecoveryStatus.TimedOut)
             return "method deadline exceeded";
+        if (m.Diagnostics.Any(d => d.StartsWith("InternalError:", StringComparison.Ordinal)))
+            return "internal error";
         var text = string.Join(" ", m.Diagnostics);
         (string Key, string Reason)[] table =
         [
