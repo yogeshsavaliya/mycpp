@@ -14,7 +14,13 @@ public enum MethodRecoveryStatus
     CompilationChecked,
     BehaviourCheckedOnFixtures,
     Unsupported,
-    Failed
+    Failed,
+    /// <summary>A configured instruction, block, or structuring budget stopped this method. It is not a recovered body.</summary>
+    AnalysisBudgetExceeded,
+    /// <summary>The per-method deadline elapsed. It is not a recovered body.</summary>
+    TimedOut,
+    /// <summary>Body analysis was not run for this method. Metadata is still recorded.</summary>
+    NotAnalyzed
 }
 
 public enum ScriptingBackend

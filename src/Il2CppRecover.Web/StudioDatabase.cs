@@ -49,6 +49,7 @@ public sealed class SettingsRecord
     public required string Theme { get; init; }
     public int TimeoutSeconds { get; init; }
     public required string DefaultAbi { get; init; }
+    public string BodyScope { get; init; } = "full";
 }
 
 public sealed class StudioDatabase
@@ -106,8 +107,24 @@ public sealed class StudioDatabase
                 );
                 INSERT OR IGNORE INTO settings (id, theme, timeout_seconds, default_abi) VALUES (1, 'light', 180, 'arm64-v8a');
                 """);
+            EnsureColumn(connection, "settings", "body_scope", "TEXT NOT NULL DEFAULT 'full'");
             return 0;
         });
+    }
+
+    private static void EnsureColumn(SqliteConnection connection, string table, string column, string definition)
+    {
+        using var info = connection.CreateCommand();
+        info.CommandText = "PRAGMA table_info(" + table + ");";
+        using var reader = info.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+        using var alter = connection.CreateCommand();
+        alter.CommandText = "ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition + ";";
+        alter.ExecuteNonQuery();
     }
 
     public ProjectRecord InsertProject(ProjectRecord project)
@@ -374,18 +391,19 @@ public sealed class StudioDatabase
     public SettingsRecord GetSettings() => With(connection =>
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT theme, timeout_seconds, default_abi FROM settings WHERE id = 1;";
+        command.CommandText = "SELECT theme, timeout_seconds, default_abi, body_scope FROM settings WHERE id = 1;";
         using var reader = command.ExecuteReader();
         reader.Read();
         return new SettingsRecord
         {
             Theme = reader.GetString(0),
             TimeoutSeconds = reader.GetInt32(1),
-            DefaultAbi = reader.GetString(2)
+            DefaultAbi = reader.GetString(2),
+            BodyScope = reader.IsDBNull(3) ? "full" : reader.GetString(3)
         };
     });
 
-    public SettingsRecord SaveSettings(string theme, int timeoutSeconds, string defaultAbi)
+    public SettingsRecord SaveSettings(string theme, int timeoutSeconds, string defaultAbi, string? bodyScope = null)
     {
         if (theme is not ("light" or "dark"))
             theme = "light";
@@ -395,13 +413,16 @@ public sealed class StudioDatabase
             timeoutSeconds = 3600;
         if (string.IsNullOrWhiteSpace(defaultAbi))
             defaultAbi = "arm64-v8a";
+        if (bodyScope is not ("full" or "gameplay"))
+            bodyScope = "full";
         With(connection =>
         {
             using var command = connection.CreateCommand();
-            command.CommandText = "UPDATE settings SET theme = $theme, timeout_seconds = $timeout, default_abi = $abi WHERE id = 1;";
+            command.CommandText = "UPDATE settings SET theme = $theme, timeout_seconds = $timeout, default_abi = $abi, body_scope = $scope WHERE id = 1;";
             Add(command, "$theme", theme);
             Add(command, "$timeout", timeoutSeconds);
             Add(command, "$abi", defaultAbi.Trim());
+            Add(command, "$scope", bodyScope);
             command.ExecuteNonQuery();
             return 0;
         });

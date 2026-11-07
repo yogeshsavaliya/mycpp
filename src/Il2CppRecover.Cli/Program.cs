@@ -86,12 +86,14 @@ public static class Program
             return 2;
         var timeout = TimeSpan.FromSeconds(GetInt(args, "--timeout", 180));
         var inProcess = Has(args, "--in-process");
+        var gameplay = Has(args, "--gameplay-first");
+        var budgetMs = GetInt(args, "--method-budget-ms", 0);
         if (inProcess)
-            return AnalyzeInProcess(input, output, abi, unity);
+            return AnalyzeInProcess(input, output, abi, unity, gameplay, budgetMs);
 
         var requestPath = Path.Combine(output, "worker-request.json");
         Directory.CreateDirectory(output);
-        File.WriteAllText(requestPath, JsonSerializer.Serialize(new WorkerRequest(input, output, abi, unity)));
+        File.WriteAllText(requestPath, JsonSerializer.Serialize(new WorkerRequest(input, output, abi, unity, gameplay, budgetMs)));
         var dll = typeof(Program).Assembly.Location;
         if (string.IsNullOrEmpty(dll))
         {
@@ -134,16 +136,27 @@ public static class Program
             return 2;
         }
         var request = JsonSerializer.Deserialize<WorkerRequest>(File.ReadAllText(requestPath)) ?? throw new InvalidOperationException("The worker request is empty.");
-        return AnalyzeInProcess(request.Input, request.Output, request.Abi, request.UnityVersion);
+        return AnalyzeInProcess(request.Input, request.Output, request.Abi, request.UnityVersion, request.GameplayFirst, request.MethodBudgetMs);
     }
 
-    private static int AnalyzeInProcess(string input, string output, string? abi, string? unity)
+    private static int AnalyzeInProcess(string input, string output, string? abi, string? unity, bool gameplayFirst, int methodBudgetMs)
     {
+        var budget = methodBudgetMs > 0
+            ? new AnalysisBudget { MethodDeadline = TimeSpan.FromMilliseconds(methodBudgetMs) }
+            : AnalysisBudget.Default;
+        using var cancel = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            cancel.Cancel();
+        };
         var result = AnalysisPipeline.Analyze(input, output, new AnalysisOptions
         {
             RequestedAbi = abi,
-            SuppliedUnityVersion = unity
-        }, new Progress<ProgressEvent>(e => Console.Error.WriteLine(FormatProgress(e))), CancellationToken.None);
+            SuppliedUnityVersion = unity,
+            GameplayFirst = gameplayFirst,
+            Budget = budget
+        }, new StderrProgress(), cancel.Token);
         Console.WriteLine(JsonDefaults.Serialize(new
         {
             result.Inventory.Succeeded,
@@ -161,6 +174,21 @@ public static class Program
 
     private static string FormatProgress(ProgressEvent e)
     {
+        if (e.Kind == "method-start")
+            return "Method start: " + e.Detail;
+        if (e.Kind == "heartbeat")
+            return "Heartbeat " + e.Stage + (string.IsNullOrEmpty(e.Detail) ? "" : ": " + e.Detail);
+        if (e.Kind == "helper")
+        {
+            var helper = e.Stage;
+            if (e.Completed is int helperDone && e.Total is int helperTotal)
+                helper += " " + helperDone + "/" + helperTotal;
+            if (!string.IsNullOrEmpty(e.Detail))
+                helper += ": " + e.Detail;
+            return "Helpers " + helper;
+        }
+        if (e.Kind == "identity")
+            return "Identity " + e.Detail;
         var text = e.Stage;
         if (e.Completed is int done && e.Total is int total)
             text += " " + done + "/" + total;
@@ -295,7 +323,7 @@ public static class Program
             Il2CppRecover commands:
               version
               inventory <apk> --output <dir> [--abi arm64-v8a] [--unity-version 2022.3.62f3]
-              analyze <apk> --output <dir> [--timeout 180] [--in-process] [--abi ...] [--unity-version ...]
+              analyze <apk> --output <dir> [--timeout 180] [--in-process] [--abi ...] [--unity-version ...] [--gameplay-first] [--method-budget-ms 15000]
               recover-slice --code <bin> --address <hex> --name <method> --type <type> --output <dir>
                             [--namespace ...] [--static] [--return int32] [--params a:int32,b:int32]
               worker --request <json>
@@ -305,5 +333,10 @@ public static class Program
             """);
     }
 
-    private sealed record WorkerRequest(string Input, string Output, string? Abi, string? UnityVersion);
+    private sealed record WorkerRequest(string Input, string Output, string? Abi, string? UnityVersion, bool GameplayFirst = false, int MethodBudgetMs = 0);
+
+    private sealed class StderrProgress : IProgress<ProgressEvent>
+    {
+        public void Report(ProgressEvent value) => Console.Error.WriteLine(FormatProgress(value));
+    }
 }

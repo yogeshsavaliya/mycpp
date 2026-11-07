@@ -219,6 +219,9 @@ public sealed class RecoveryCounts
     public int Unsupported { get; init; }
     public int Failed { get; init; }
     public int PlaceholderBodies { get; init; }
+    public int AnalysisBudgetExceeded { get; init; }
+    public int TimedOut { get; init; }
+    public int NotAnalyzed { get; init; }
     public int CompilationChecked { get; init; }
     public int BehaviourCheckedOnFixtures { get; init; }
     public required string Denominator { get; init; }
@@ -250,6 +253,8 @@ public sealed class RecoveryReport
     public required string PinnedDisarm { get; init; }
     public required RecoveryCounts Counts { get; init; }
     public string BuildIdentity { get; init; } = "";
+    /// <summary>full, or gameplay-first. Framework methods are not dropped from metadata in either mode.</summary>
+    public string BodyAnalysisScope { get; init; } = "full";
     public IReadOnlyList<StageBreakdown> Breakdown { get; init; } = [];
     public required string BehaviouralValidation { get; init; }
     public required IReadOnlyList<string> Limitations { get; init; }
@@ -261,6 +266,8 @@ public sealed class ProgressEvent
     public string? Detail { get; init; }
     public int? Completed { get; init; }
     public int? Total { get; init; }
+    /// <summary>stage, helper, heartbeat, method-start, method-end, or identity. Empty is treated as stage.</summary>
+    public string Kind { get; init; } = "";
 }
 
 public sealed class AnalysisOutput

@@ -13,23 +13,53 @@ public sealed class AnalysisOptions
     public string? SuppliedUnityVersion { get; init; }
     public bool TryNativeLoad { get; init; } = true;
     public bool EmitPlaceholders { get; init; } = true;
+    /// <summary>When true, framework assemblies keep their metadata and call targets, and their bodies are left unanalyzed.</summary>
+    public bool GameplayFirst { get; init; }
+    public AnalysisBudget Budget { get; init; } = AnalysisBudget.Default;
 }
 
 public static class AnalysisPipeline
 {
     public static AnalysisOutput Analyze(string apkPath, string outputDirectory, AnalysisOptions options, IProgress<ProgressEvent>? progress, CancellationToken cancellationToken)
     {
+        Directory.CreateDirectory(outputDirectory);
+        using var trace = new AnalysisTrace(Path.Combine(outputDirectory, "analysis-trace.jsonl"));
         var logs = new List<string>();
-        void Log(string stage, string? detail = null)
+        var pace = new Pace();
+        void Log(string stage, string? detail = null, string kind = "stage", int? done = null, int? total = null)
         {
             logs.Add(DateTimeOffset.UtcNow.ToString("O") + " " + stage + (detail is null ? "" : " — " + detail));
-            progress?.Report(new ProgressEvent { Stage = stage, Detail = detail });
+            progress?.Report(new ProgressEvent { Stage = stage, Detail = detail, Kind = kind, Completed = done, Total = total });
+            trace.Write(kind.Length == 0 ? "stage" : kind, new Dictionary<string, object?>
+            {
+                ["stage"] = stage,
+                ["detail"] = detail,
+                ["completed"] = done,
+                ["total"] = total
+            });
         }
 
+        trace.Write("identity", new Dictionary<string, object?>
+        {
+            ["build"] = ToolInfo.BuildIdentity,
+            ["pid"] = Environment.ProcessId,
+            ["abi"] = options.RequestedAbi,
+            ["bodyScope"] = options.GameplayFirst ? "gameplay-first" : "full"
+        });
         cancellationToken.ThrowIfCancellationRequested();
         Log("Hash and inventory");
         var inventory = ApkArchive.Inspect(apkPath, outputDirectory, options.Limits, options.RequestedAbi, options.SuppliedUnityVersion);
         Log("Inventory finished", "backend=" + inventory.ScriptingBackend + ", succeeded=" + inventory.Succeeded);
+        var identity = "build=" + ToolInfo.BuildIdentity + " pid=" + Environment.ProcessId + " sha256=" + inventory.InputSha256 + " abi=" + (inventory.SelectedAbi ?? options.RequestedAbi ?? "unselected");
+        Log("Identity", identity, "identity");
+        trace.Write("identity", new Dictionary<string, object?>
+        {
+            ["build"] = ToolInfo.BuildIdentity,
+            ["pid"] = Environment.ProcessId,
+            ["sha256"] = inventory.InputSha256,
+            ["abi"] = inventory.SelectedAbi ?? options.RequestedAbi,
+            ["bodyScope"] = options.GameplayFirst ? "gameplay-first" : "full"
+        });
 
         cancellationToken.ThrowIfCancellationRequested();
         MetadataCatalog? catalog = null;
@@ -79,8 +109,8 @@ public static class AnalysisPipeline
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        var methods = BuildMethods(catalog, engine, binaryBytes, elf, options.EmitPlaceholders, cancellationToken, progress);
-        var report = RecoveryReportBuilder.Build(methods);
+        var methods = BuildMethods(catalog, engine, binaryBytes, elf, options, cancellationToken, progress, trace, pace);
+        var report = RecoveryReportBuilder.Build(methods, options.GameplayFirst ? "gameplay-first" : "full");
         Log("Writing output");
         OutputWriter.Write(outputDirectory, inventory, catalog, methods, report, logs, engine?.Diagnostic, engine?.Types);
         return new AnalysisOutput
@@ -95,7 +125,7 @@ public static class AnalysisPipeline
         };
     }
 
-    private static List<MethodRecord> BuildMethods(MetadataCatalog? catalog, EngineLoadResult? engine, byte[]? binary, ElfImage? elf, bool placeholders, CancellationToken cancellationToken, IProgress<ProgressEvent>? progress)
+    private static List<MethodRecord> BuildMethods(MetadataCatalog? catalog, EngineLoadResult? engine, byte[]? binary, ElfImage? elf, AnalysisOptions options, CancellationToken cancellationToken, IProgress<ProgressEvent>? progress, AnalysisTrace trace, Pace pace)
     {
         var records = new List<MethodRecord>();
         if (catalog is null)
@@ -103,9 +133,29 @@ public static class AnalysisPipeline
 
         var nativeByIndex = (engine?.Methods ?? []).Where(m => m.MetadataIndex >= 0).GroupBy(m => m.MetadataIndex).ToDictionary(g => g.Key, g => g.First());
         var catalogTypes = catalog.Images.SelectMany(i => i.Types).GroupBy(t => t.MetadataIndex).ToDictionary(g => g.Key, g => g.First());
-        var ctx = BuildImageContext(catalog, catalogTypes, engine, nativeByIndex, binary, elf, progress);
+        var ctx = BuildImageContext(catalog, catalogTypes, engine, nativeByIndex, binary, elf, options, cancellationToken, progress, trace, pace);
         var orderedAddresses = nativeByIndex.Values.Select(m => m.VirtualAddress).Where(a => a != 0).Distinct().Order().ToList();
-        var total = catalog.Images.Sum(i => i.Types.Sum(t => t.Methods.Count));
+        var framework = 0;
+        var bodyTotal = 0;
+        foreach (var image in catalog.Images)
+        {
+            foreach (var type in image.Types)
+            {
+                foreach (var method in type.Methods)
+                {
+                    if (options.GameplayFirst && RecoveryReportBuilder.IsFrameworkAssembly(image.Name) && method is { IsAbstract: false, IsExternal: false })
+                        framework++;
+                    else
+                        bodyTotal++;
+                }
+            }
+        }
+        if (options.GameplayFirst)
+        {
+            var note = "Framework bodies not analyzed: " + framework + ". Gameplay-first mode did not lift them and does not count them as recovered.";
+            progress?.Report(new ProgressEvent { Stage = "Body analysis", Detail = note, Kind = "stage" });
+            trace.Write("scope", new Dictionary<string, object?> { ["frameworkNotAnalyzed"] = framework, ["bodiesAttempted"] = bodyTotal });
+        }
         var done = 0;
         foreach (var image in catalog.Images)
         {
@@ -114,11 +164,15 @@ public static class AnalysisPipeline
                 foreach (var method in type.Methods)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    done++;
-                    if (done % 50 == 0)
-                        progress?.Report(new ProgressEvent { Stage = "Methods", Completed = done, Total = total });
+                    var skip = options.GameplayFirst && RecoveryReportBuilder.IsFrameworkAssembly(image.Name) && method is { IsAbstract: false, IsExternal: false };
+                    if (!skip)
+                    {
+                        done++;
+                        if (done % 50 == 0 || done == bodyTotal)
+                            progress?.Report(new ProgressEvent { Stage = "Methods", Detail = "body analysis started", Kind = "stage", Completed = done, Total = bodyTotal });
+                    }
                     ctx.TypesByIndex.TryGetValue(type.MetadataIndex, out var typeInfo);
-                    records.Add(BuildOne(image, type, method, nativeByIndex, orderedAddresses, binary, elf, placeholders, typeInfo, ctx));
+                    records.Add(BuildOne(image, type, method, nativeByIndex, orderedAddresses, binary, elf, options, typeInfo, ctx, skip, progress, trace, pace, cancellationToken));
                 }
             }
         }
@@ -137,6 +191,11 @@ public static class AnalysisPipeline
         return records;
     }
 
+    private sealed class Pace
+    {
+        public long Next = System.Diagnostics.Stopwatch.GetTimestamp();
+    }
+
     private sealed class ImageContext
     {
         public CodeSpace? Space;
@@ -145,6 +204,7 @@ public static class AnalysisPipeline
         public Dictionary<int, EngineTypeInfo> TypesByIndex = [];
         public Dictionary<string, EngineTypeInfo> TypesByFullName = new(StringComparer.Ordinal);
         public IReadOnlyDictionary<ulong, RuntimeHelper> Helpers = new Dictionary<ulong, RuntimeHelper>();
+        public DiscoveryCache Cache { get; } = new(64);
     }
 
     private static string FullName(CatalogType type, IReadOnlyDictionary<int, CatalogType> all)
@@ -170,7 +230,7 @@ public static class AnalysisPipeline
         return current.Namespace;
     }
 
-    private static ImageContext BuildImageContext(MetadataCatalog catalog, IReadOnlyDictionary<int, CatalogType> catalogTypes, EngineLoadResult? engine, Dictionary<int, EngineMethod> nativeByIndex, byte[]? binary, ElfImage? elf, IProgress<ProgressEvent>? progress)
+    private static ImageContext BuildImageContext(MetadataCatalog catalog, IReadOnlyDictionary<int, CatalogType> catalogTypes, EngineLoadResult? engine, Dictionary<int, EngineMethod> nativeByIndex, byte[]? binary, ElfImage? elf, AnalysisOptions options, CancellationToken cancellationToken, IProgress<ProgressEvent>? progress, AnalysisTrace trace, Pace pace)
     {
         var ctx = new ImageContext();
         foreach (var t in engine?.Types ?? [])
@@ -218,31 +278,34 @@ public static class AnalysisPipeline
             }
         }
 
-        progress?.Report(new ProgressEvent { Stage = "Identifying runtime helpers" });
-        var discovered = new List<DiscoveredFunction>();
-        foreach (var entry in entries)
+        progress?.Report(new ProgressEvent { Stage = "Identifying runtime helpers", Detail = "pass 1", Kind = "helper", Completed = 0, Total = entries.Count });
+        var scan = RuntimeHelperScan.Scan(ctx.Space, entries, cancellationToken, (done, total, phase) =>
         {
-            try { discovered.Add(FunctionDiscovery.Discover(ctx.Space, entry)); }
-            catch (Exception) { }
-        }
-        foreach (var fn in discovered)
+            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (now < pace.Next && done != total)
+                return;
+            pace.Next = now + System.Diagnostics.Stopwatch.Frequency;
+            var stage = phase == "pass 1" ? "Identifying runtime helpers" : "Reanalyzing noreturn callers";
+            progress?.Report(new ProgressEvent { Stage = stage, Detail = phase, Kind = "helper", Completed = done, Total = total });
+            trace.Write("helper", new Dictionary<string, object?> { ["phase"] = phase, ["completed"] = done, ["total"] = total });
+        });
+        foreach (var note in scan.Notes)
+            trace.Write("helper-note", new Dictionary<string, object?> { ["note"] = note });
+        ctx.Helpers = scan.Helpers;
+        trace.Write("helper-inference", new Dictionary<string, object?>
         {
-            foreach (var (site, evidence) in fn.NoReturnCalls)
-            {
-                if (fn.Instructions.TryGetValue(site, out var call) && evidence.StartsWith("call at", StringComparison.Ordinal))
-                    ctx.Space.AddNoReturn(call.Target, "elsewhere in the image, " + evidence);
-            }
-        }
-        if (ctx.Space.NoReturn.Count > 0)
+            ["pass1"] = scan.Pass1Functions,
+            ["pass2"] = scan.Pass2Functions,
+            ["helpers"] = ctx.Helpers.Count
+        });
+        progress?.Report(new ProgressEvent
         {
-            discovered = [];
-            foreach (var entry in entries)
-            {
-                try { discovered.Add(FunctionDiscovery.Discover(ctx.Space, entry)); }
-                catch (Exception) { }
-            }
-        }
-        ctx.Helpers = RuntimeHelperInference.InferNullReferenceRaiser(discovered);
+            Stage = "Identifying runtime helpers",
+            Detail = "inference finished, helpers=" + ctx.Helpers.Count + ", pass1=" + scan.Pass1Functions + ", pass2=" + scan.Pass2Functions,
+            Kind = "helper",
+            Completed = entries.Count,
+            Total = entries.Count
+        });
         return ctx;
     }
 
@@ -335,7 +398,7 @@ public static class AnalysisPipeline
         };
     }
 
-    private static MethodRecord BuildOne(CatalogImage image, CatalogType type, CatalogMethod method, Dictionary<int, EngineMethod> nativeByIndex, List<ulong> orderedAddresses, byte[]? binary, ElfImage? elf, bool placeholders, EngineTypeInfo? typeInfo, ImageContext ctx)
+    private static MethodRecord BuildOne(CatalogImage image, CatalogType type, CatalogMethod method, Dictionary<int, EngineMethod> nativeByIndex, List<ulong> orderedAddresses, byte[]? binary, ElfImage? elf, AnalysisOptions options, EngineTypeInfo? typeInfo, ImageContext ctx, bool skipBody, IProgress<ProgressEvent>? progress, AnalysisTrace trace, Pace pace, CancellationToken cancellationToken)
     {
         var kind = method.IsAbstract ? MethodKind.Abstract : method.IsExternal ? MethodKind.External : method.IsGeneric ? MethodKind.Generic : MethodKind.Concrete;
         var diagnostics = new List<string>();
@@ -354,6 +417,13 @@ public static class AnalysisPipeline
 
         if (kind is MethodKind.Abstract or MethodKind.External)
             diagnostics.Add(kind + " method. No native body is expected, and none was invented.");
+        else if (skipBody)
+        {
+            status = MethodRecoveryStatus.NotAnalyzed;
+            diagnostics.Add("Gameplay-first analysis left this framework method body unanalyzed. Metadata and the call target stay available. Full analysis lifts framework bodies.");
+            if (nativeByIndex.TryGetValue(method.MetadataIndex, out var skipped) && skipped.VirtualAddress != 0)
+                address = "0x" + skipped.VirtualAddress.ToString("X");
+        }
         else if (!nativeByIndex.TryGetValue(method.MetadataIndex, out var native) || native.VirtualAddress == 0)
             diagnostics.Add("No native virtual address was located. Metadata names are not recovered method logic.");
         else if (binary is null || elf is null || !elf.TryMap(native.VirtualAddress, out var offset))
@@ -384,17 +454,69 @@ public static class AnalysisPipeline
             }
             else
             {
-                var lifted = Arm64Recoverer.Recover(new RecoveryRequest
+                var started = System.Diagnostics.Stopwatch.GetTimestamp();
+                var detail = image.Name + " " + signature + " index=" + method.MetadataIndex + " addr=" + address;
+                progress?.Report(new ProgressEvent { Stage = "Method start", Detail = detail, Kind = "method-start", Completed = method.MetadataIndex, Total = null });
+                trace.Write("method-start", new Dictionary<string, object?>
                 {
-                    Code = code,
-                    VirtualAddress = native.VirtualAddress,
-                    Contract = contract,
-                    Boundary = BoundaryEvidence.NextMethodAddressOnly,
-                    Space = ctx.Space,
-                    CallTargets = ctx.CallTargets,
-                    TypeFields = ctx.TypeFields,
-                    RuntimeHelpers = ctx.Helpers
+                    ["assembly"] = image.Name,
+                    ["type"] = type.Name,
+                    ["signature"] = signature,
+                    ["metadataIndex"] = method.MetadataIndex,
+                    ["address"] = address,
+                    ["stage"] = "lift"
                 });
+                MethodBodyResult? lifted = null;
+                try
+                {
+                    lifted = Arm64Recoverer.Recover(new RecoveryRequest
+                    {
+                        Code = code,
+                        VirtualAddress = native.VirtualAddress,
+                        Contract = contract,
+                        Boundary = BoundaryEvidence.NextMethodAddressOnly,
+                        Space = ctx.Space,
+                        CallTargets = ctx.CallTargets,
+                        TypeFields = ctx.TypeFields,
+                        RuntimeHelpers = ctx.Helpers,
+                        Budget = options.Budget,
+                        CancellationToken = cancellationToken,
+                        Cache = ctx.Cache,
+                        Pulse = () =>
+                        {
+                            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                            if (now < pace.Next)
+                                return;
+                            pace.Next = now + System.Diagnostics.Stopwatch.Frequency;
+                            var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started, now);
+                            progress?.Report(new ProgressEvent
+                            {
+                                Stage = "Body analysis",
+                                Detail = detail + " elapsed=" + elapsed.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "s",
+                                Kind = "heartbeat"
+                            });
+                        }
+                    });
+                }
+                finally
+                {
+                    var elapsedMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                    trace.Write("method-end", new Dictionary<string, object?>
+                    {
+                        ["assembly"] = image.Name,
+                        ["type"] = type.Name,
+                        ["signature"] = signature,
+                        ["metadataIndex"] = method.MetadataIndex,
+                        ["address"] = address,
+                        ["stage"] = "lift",
+                        ["durationMs"] = elapsedMs,
+                        ["instructions"] = lifted?.InstructionCount,
+                        ["blocks"] = lifted?.BlockCount,
+                        ["status"] = lifted?.Status.ToString() ?? "exception"
+                    });
+                }
+                if (lifted is null)
+                    throw new InvalidOperationException("The lifter returned no result.");
                 instructions.AddRange(lifted.Instructions);
                 diagnostics.AddRange(lifted.Diagnostics);
                 status = lifted.Status;
@@ -409,7 +531,7 @@ public static class AnalysisPipeline
             }
         }
 
-        if (csharp is null && placeholders && kind is not (MethodKind.Abstract or MethodKind.External))
+        if (csharp is null && options.EmitPlaceholders && kind is not (MethodKind.Abstract or MethodKind.External))
         {
             csharp = CSharpEmitter.Placeholder(status, diagnostics);
             placeholder = true;

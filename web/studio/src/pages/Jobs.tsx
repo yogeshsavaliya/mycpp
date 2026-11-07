@@ -71,9 +71,9 @@ export function JobsPage() {
               </div>
               <p>{job.stage || "Waiting to start"}</p>
               <p className="muted">Elapsed: {elapsed(job.startedUtc, job.finishedUtc)}</p>
-              {job.progressKnown && job.methodTotal ? (
+              {job.bodyProgress && job.methodTotal ? (
                 <>
-                  <div>Methods inspected: {job.methodDone ?? 0} of {job.methodTotal}</div>
+                  <div>Body analysis started: {job.methodDone ?? 0} of {job.methodTotal}</div>
                   <div className="bar"><span style={{ width: Math.min(100, ((job.methodDone ?? 0) / job.methodTotal) * 100) + "%" }} /></div>
                 </>
               ) : isRunning(job.state) ? (
