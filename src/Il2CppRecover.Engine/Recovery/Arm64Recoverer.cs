@@ -17,7 +17,7 @@ public static class Arm64Recoverer
         try
         {
             var instructions = Disassembler.Disassemble(code, address, new Disassembler.Options(true, true, false)).ToList();
-            return Render(code, instructions);
+            return Render(code, address, instructions);
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
         {
@@ -254,7 +254,10 @@ public static class Arm64Recoverer
     {
         if (fn.Instructions.Count == 0)
             return sliceListing;
-        var byAddress = sliceListing.ToDictionary(i => i.Address);
+        SliceAddressing.RequireDistinct(sliceListing);
+        var byAddress = new Dictionary<string, NativeInstruction>(sliceListing.Count, StringComparer.Ordinal);
+        foreach (var item in sliceListing)
+            byAddress.Add(item.Address, item);
         var list = new List<NativeInstruction>();
         foreach (var op in fn.Instructions.Values)
         {
@@ -293,7 +296,7 @@ public static class Arm64Recoverer
             return Fail(request, "Disassembly failed: " + ex.GetType().Name + ": " + ex.Message, []);
         }
 
-        var rendered = Render(request.Code, instructions);
+        var rendered = Render(request.Code, request.VirtualAddress, instructions);
         if (instructions.Count != request.Code.Length / 4)
             return Fail(request, "The disassembler did not consume the whole slice.", rendered);
 
@@ -301,7 +304,8 @@ public static class Arm64Recoverer
         if (invalidIndex >= 0)
         {
             var invalid = instructions[invalidIndex];
-            return Fail(request, $"Instruction at 0x{invalid.Address:X} is {invalid.Mnemonic}.", rendered);
+            var computed = Pc(request, invalidIndex);
+            return Fail(request, $"Instruction at 0x{computed:X} is {invalid.Mnemonic}. Disarm reported address 0x{invalid.Address:X} and text '{invalid}'.", rendered);
         }
 
         if (request.Contract.IsGeneric)
@@ -388,7 +392,7 @@ public static class Arm64Recoverer
         if (reachable.Count == 1 && EndsWith(insns, entry, Arm64Mnemonic.RET))
             return LiftTerminal(request, insns, entry, Initial(request), diagnostics);
 
-        if (TryMatchIfReturn(insns, reachable, entry, out var thenBlock, out var elseBlock))
+        if (TryMatchIfReturn(request, insns, reachable, entry, out var thenBlock, out var elseBlock))
             return LiftIfReturn(request, insns, entry, thenBlock!, elseBlock!, diagnostics);
 
         if (TryMatchWhile(insns, blocks, reachable, entry, out var prelude, out var header, out var body, out var exit))
@@ -403,7 +407,7 @@ public static class Arm64Recoverer
         var statements = new List<Stmt>();
         if (!LiftRange(request, insns, block.First, block.Last - 1, state, statements, locals: null, diagnostics))
             return null;
-        if (!AppendReturn(request, state, statements, insns[block.Last].Address, diagnostics))
+        if (!AppendReturn(request, state, statements, Pc(request, block.Last), diagnostics))
             return null;
         return statements;
     }
@@ -414,7 +418,7 @@ public static class Arm64Recoverer
         var prefix = new List<Stmt>();
         if (!LiftRange(request, insns, header.First, header.Last - 1, state, prefix, null, diagnostics))
             return null;
-        if (!TryBranchCondition(insns[header.Last], state, out var condition, out var why))
+        if (!TryBranchCondition(insns[header.Last], Pc(request, header.Last), state, out var condition, out var why))
         {
             diagnostics.Add(why);
             return null;
@@ -424,19 +428,19 @@ public static class Arm64Recoverer
         var takenStatements = new List<Stmt>();
         if (!LiftRange(request, insns, taken.First, taken.Last - 1, takenState, takenStatements, null, diagnostics))
             return null;
-        if (!AppendReturn(request, takenState, takenStatements, insns[taken.Last].Address, diagnostics))
+        if (!AppendReturn(request, takenState, takenStatements, Pc(request, taken.Last), diagnostics))
             return null;
 
         var otherState = state.Clone();
         var otherStatements = new List<Stmt>();
         if (!LiftRange(request, insns, fallthrough.First, fallthrough.Last - 1, otherState, otherStatements, null, diagnostics))
             return null;
-        if (!AppendReturn(request, otherState, otherStatements, insns[fallthrough.Last].Address, diagnostics))
+        if (!AppendReturn(request, otherState, otherStatements, Pc(request, fallthrough.Last), diagnostics))
             return null;
 
         prefix.Add(new IfStmt(condition, takenStatements, otherStatements)
         {
-            Addresses = [insns[header.Last].Address]
+            Addresses = [Pc(request, header.Last)]
         });
         return prefix;
     }
@@ -447,7 +451,7 @@ public static class Arm64Recoverer
         {
             if (insns[i].Mnemonic is not (Arm64Mnemonic.CMP or Arm64Mnemonic.NOP))
             {
-                diagnostics.Add($"0x{insns[i].Address:X}: the loop header contains {insns[i].Mnemonic}, which is outside the single-while subset.");
+                diagnostics.Add($"0x{Pc(request, i):X}: the loop header contains {insns[i].Mnemonic}, which is outside the single-while subset.");
                 return null;
             }
         }
@@ -476,7 +480,7 @@ public static class Arm64Recoverer
             }
             var name = "local_" + (slot.Width == 32 ? "w" : "x") + reg;
             names[reg] = name;
-            declare.Add(new DeclareStmt(name, slot.Value.Type, slot.Value) { Addresses = [insns[header.First].Address] });
+            declare.Add(new DeclareStmt(name, slot.Value.Type, slot.Value) { Addresses = [Pc(request, header.First)] });
         }
 
         var loopState = state.Clone();
@@ -488,13 +492,13 @@ public static class Arm64Recoverer
 
         if (!LiftRange(request, insns, header.First, header.Last - 1, loopState, statements: [], names, diagnostics))
             return null;
-        if (!TryBranchCondition(insns[header.Last], loopState, out var taken, out var why))
+        if (!TryBranchCondition(insns[header.Last], Pc(request, header.Last), loopState, out var taken, out var why))
         {
             diagnostics.Add(why);
             return null;
         }
 
-        var exitIsTaken = BranchTargetAddress(insns[header.Last]) == insns[exit.First].Address;
+        var exitIsTaken = BranchTargetAddress(insns[header.Last], Pc(request, header.Last), RawAt(request, header.Last)) == Pc(request, exit.First);
         var stay = exitIsTaken ? Invert(taken) : taken;
         if (stay is null)
         {
@@ -508,12 +512,12 @@ public static class Arm64Recoverer
             return null;
 
         statements.AddRange(declare);
-        statements.Add(new WhileStmt(stay, bodyStatements) { Addresses = [insns[header.Last].Address] });
+        statements.Add(new WhileStmt(stay, bodyStatements) { Addresses = [Pc(request, header.Last)] });
 
         var exitState = loopState.Clone();
         if (!LiftRange(request, insns, exit.First, exit.Last - 1, exitState, statements, names, diagnostics))
             return null;
-        if (!AppendReturn(request, exitState, statements, insns[exit.Last].Address, diagnostics))
+        if (!AppendReturn(request, exitState, statements, Pc(request, exit.Last), diagnostics))
             return null;
         return statements;
     }
@@ -557,7 +561,7 @@ public static class Arm64Recoverer
             return true;
         for (var i = first; i <= lastInclusive; i++)
         {
-            if (!LiftOne(request, insns[i], state, statements, locals, out var error))
+            if (!LiftOne(request, insns[i], Pc(request, i), RawAt(request, i), state, statements, locals, out var error))
             {
                 diagnostics.Add(error);
                 return false;
@@ -566,12 +570,12 @@ public static class Arm64Recoverer
         return true;
     }
 
-    private static bool LiftOne(RecoveryRequest request, Arm64Instruction insn, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
+    private static bool LiftOne(RecoveryRequest request, Arm64Instruction insn, ulong pc, uint raw, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
     {
         error = "";
         if (insn.FinalOpShiftType != Arm64ShiftType.NONE || insn.FinalOpExtendType != Arm64ExtendType.NONE)
         {
-            error = $"0x{insn.Address:X}: shifted or extended operands are not lifted ({insn}).";
+            error = $"0x{pc:X}: shifted or extended operands are not lifted ({insn}).";
             return false;
         }
 
@@ -581,42 +585,42 @@ public static class Arm64Recoverer
                 return true;
             case Arm64Mnemonic.MOV:
             case Arm64Mnemonic.MOVZ:
-                return Move(insn, state, statements, locals, invert: false, out error);
+                return Move(insn, pc, state, statements, locals, invert: false, out error);
             case Arm64Mnemonic.MOVN:
-                return Move(insn, state, statements, locals, invert: true, out error);
+                return Move(insn, pc, state, statements, locals, invert: true, out error);
             case Arm64Mnemonic.ADD:
             case Arm64Mnemonic.SUB:
             case Arm64Mnemonic.MUL:
             case Arm64Mnemonic.AND:
             case Arm64Mnemonic.ORR:
             case Arm64Mnemonic.EOR:
-                return Arithmetic(insn, state, statements, locals, out error);
+                return Arithmetic(insn, pc, state, statements, locals, out error);
             case Arm64Mnemonic.CMP:
-                return Compare(insn, state, out error);
+                return Compare(insn, pc, state, out error);
             case Arm64Mnemonic.CSEL:
-                return Select(insn, state, statements, locals, out error);
+                return Select(insn, pc, state, statements, locals, out error);
             case Arm64Mnemonic.FADD:
-                return FloatAdd(insn, state, statements, locals, out error);
+                return FloatAdd(insn, pc, state, statements, locals, out error);
             case Arm64Mnemonic.ADRP:
-                return Adrp(insn, state, statements, locals, out error);
+                return Adrp(insn, pc, state, statements, locals, out error);
             case Arm64Mnemonic.LDR:
-                return Load(request, insn, state, statements, locals, out error);
+                return Load(request, insn, pc, state, statements, locals, out error);
             case Arm64Mnemonic.STR:
-                return Store(request, insn, state, out error, statements);
+                return Store(request, insn, pc, state, out error, statements);
             case Arm64Mnemonic.BL:
-                return Call(request, insn, state, statements, out error);
+                return Call(request, insn, pc, raw, state, statements, out error);
             default:
-                error = $"0x{insn.Address:X}: {insn.Mnemonic} is not in the implemented subset.";
+                error = $"0x{pc:X}: {insn.Mnemonic} is not in the implemented subset.";
                 return false;
         }
     }
 
-    private static bool Move(Arm64Instruction insn, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, bool invert, out string error)
+    private static bool Move(Arm64Instruction insn, ulong pc, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, bool invert, out string error)
     {
         error = "";
         if (!TryDest(insn, out var dest, out var width))
         {
-            error = $"0x{insn.Address:X}: move destination is not a general register.";
+            error = $"0x{pc:X}: move destination is not a general register.";
             return false;
         }
 
@@ -636,38 +640,38 @@ public static class Arm64Recoverer
                 return false;
             if (invert)
             {
-                error = $"0x{insn.Address:X}: MOVN of a register is not lifted.";
+                error = $"0x{pc:X}: MOVN of a register is not lifted.";
                 return false;
             }
         }
         else
         {
-            error = $"0x{insn.Address:X}: move source is not an immediate or register.";
+            error = $"0x{pc:X}: move source is not an immediate or register.";
             return false;
         }
 
-        Write(dest, width, value, state, statements, locals, insn.Address);
+        Write(dest, width, value, state, statements, locals, pc);
         return true;
     }
 
-    private static bool Arithmetic(Arm64Instruction insn, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
+    private static bool Arithmetic(Arm64Instruction insn, ulong pc, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
     {
         error = "";
         if (insn.Op3Kind == Arm64OperandKind.Immediate && insn.Op3Imm != 0)
         {
-            error = $"0x{insn.Address:X}: a non-zero shift immediate is not lifted.";
+            error = $"0x{pc:X}: a non-zero shift immediate is not lifted.";
             return false;
         }
         if (!TryDest(insn, out var dest, out var width))
         {
-            error = $"0x{insn.Address:X}: arithmetic destination is not a general register.";
+            error = $"0x{pc:X}: arithmetic destination is not a general register.";
             return false;
         }
-        if (!TryOperand(insn, 1, state, out var left, out error) || !TryOperand(insn, 2, state, out var right, out error))
+        if (!TryOperand(insn, pc, 1, state, out var left, out error) || !TryOperand(insn, pc, 2, state, out var right, out error))
             return false;
         if (insn.Mnemonic == Arm64Mnemonic.ADD && left is AddressExpr address && right is ConstExpr constant)
         {
-            Write(dest, 64, new AddressExpr(address.Address + (ulong)constant.Value), state, statements, locals, insn.Address);
+            Write(dest, 64, new AddressExpr(address.Address + (ulong)constant.Value), state, statements, locals, pc);
             return true;
         }
         var op = insn.Mnemonic switch
@@ -684,14 +688,14 @@ public static class Arm64Recoverer
         if (left.Type is PrimitiveKind.UInt32 or PrimitiveKind.UInt64)
             type = left.Type;
         state.FlagsValid = false;
-        Write(dest, width, new BinaryExpr(op, left, right, type), state, statements, locals, insn.Address);
+        Write(dest, width, new BinaryExpr(op, left, right, type), state, statements, locals, pc);
         return true;
     }
 
-    private static bool Compare(Arm64Instruction insn, RegState state, out string error)
+    private static bool Compare(Arm64Instruction insn, ulong pc, RegState state, out string error)
     {
         error = "";
-        if (!TryOperand(insn, 0, state, out var left, out error) || !TryOperand(insn, 1, state, out var right, out error))
+        if (!TryOperand(insn, pc, 0, state, out var left, out error) || !TryOperand(insn, pc, 1, state, out var right, out error))
             return false;
         state.FlagLeft = left;
         state.FlagRight = right;
@@ -700,35 +704,35 @@ public static class Arm64Recoverer
         return true;
     }
 
-    private static bool Select(Arm64Instruction insn, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
+    private static bool Select(Arm64Instruction insn, ulong pc, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
     {
         error = "";
         if (!TryDest(insn, out var dest, out var width))
         {
-            error = $"0x{insn.Address:X}: CSEL destination is not a general register.";
+            error = $"0x{pc:X}: CSEL destination is not a general register.";
             return false;
         }
         if (!TryFlagCondition(insn.FinalOpConditionCode, state, out var condition, out error))
             return false;
-        if (!TryOperand(insn, 1, state, out var whenTrue, out error) || !TryOperand(insn, 2, state, out var whenFalse, out error))
+        if (!TryOperand(insn, pc, 1, state, out var whenTrue, out error) || !TryOperand(insn, pc, 2, state, out var whenFalse, out error))
             return false;
-        Write(dest, width, new ConditionalExpr(condition, whenTrue, whenFalse), state, statements, locals, insn.Address);
+        Write(dest, width, new ConditionalExpr(condition, whenTrue, whenFalse), state, statements, locals, pc);
         return true;
     }
 
-    private static bool FloatAdd(Arm64Instruction insn, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
+    private static bool FloatAdd(Arm64Instruction insn, ulong pc, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
     {
         error = "";
         if (!TryParseFloat(insn.Op0Reg, out var dest, out var width)
             || !TryParseFloat(insn.Op1Reg, out var leftIndex, out _)
             || !TryParseFloat(insn.Op2Reg, out var rightIndex, out _))
         {
-            error = $"0x{insn.Address:X}: FADD operands are {insn.Op0Reg}, {insn.Op1Reg}, {insn.Op2Reg}. Only scalar S and D registers are lifted.";
+            error = $"0x{pc:X}: FADD operands are {insn.Op0Reg}, {insn.Op1Reg}, {insn.Op2Reg}. Only scalar S and D registers are lifted.";
             return false;
         }
         if (!state.TryGetFloat(leftIndex, out var left) || !state.TryGetFloat(rightIndex, out var right))
         {
-            error = $"0x{insn.Address:X}: FADD reads a floating-point register that has no lifted value.";
+            error = $"0x{pc:X}: FADD reads a floating-point register that has no lifted value.";
             return false;
         }
         var type = width == 64 ? PrimitiveKind.Double : PrimitiveKind.Single;
@@ -767,30 +771,30 @@ public static class Arm64Recoverer
         return true;
     }
 
-    private static bool Adrp(Arm64Instruction insn, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
+    private static bool Adrp(Arm64Instruction insn, ulong pc, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
     {
         error = "";
         if (!TryDest(insn, out var dest, out _))
         {
-            error = $"0x{insn.Address:X}: ADRP destination is not a general register.";
+            error = $"0x{pc:X}: ADRP destination is not a general register.";
             return false;
         }
-        var page = (insn.Address & ~0xFFFul) + (ulong)insn.Op1Imm;
-        Write(dest, 64, new AddressExpr(page), state, statements, locals, insn.Address);
+        var page = (pc & ~0xFFFul) + (ulong)insn.Op1Imm;
+        Write(dest, 64, new AddressExpr(page), state, statements, locals, pc);
         return true;
     }
 
-    private static bool Load(RecoveryRequest request, Arm64Instruction insn, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
+    private static bool Load(RecoveryRequest request, Arm64Instruction insn, ulong pc, RegState state, List<Stmt> statements, Dictionary<int, string>? locals, out string error)
     {
         error = "";
         if (insn.MemIndexMode != Arm64MemoryIndexMode.Offset || insn.MemAddendReg != Arm64Register.INVALID)
         {
-            error = $"0x{insn.Address:X}: only unsigned immediate loads are lifted.";
+            error = $"0x{pc:X}: only unsigned immediate loads are lifted.";
             return false;
         }
         if (!TryDest(insn, out var dest, out var width))
         {
-            error = $"0x{insn.Address:X}: load destination is not a general register.";
+            error = $"0x{pc:X}: load destination is not a general register.";
             return false;
         }
         if (!TryReadReg(insn.MemBase, state, out var baseExpr, out error))
@@ -798,25 +802,25 @@ public static class Arm64Recoverer
         var field = MatchField(request, baseExpr, insn.MemOffset);
         if (field is null)
         {
-            error = $"0x{insn.Address:X}: load is not a known field access. No pointer was invented.";
+            error = $"0x{pc:X}: load is not a known field access. No pointer was invented.";
             return false;
         }
         if (WidthOf(field.Type) != width)
         {
-            error = $"0x{insn.Address:X}: field {field.Name} width does not match the load.";
+            error = $"0x{pc:X}: field {field.Name} width does not match the load.";
             return false;
         }
         var instance = field.IsStatic ? null : baseExpr;
-        Write(dest, width, new FieldExpr(instance, field.Name, field.Type), state, statements, locals, insn.Address);
+        Write(dest, width, new FieldExpr(instance, field.Name, field.Type), state, statements, locals, pc);
         return true;
     }
 
-    private static bool Store(RecoveryRequest request, Arm64Instruction insn, RegState state, out string error, List<Stmt> statements)
+    private static bool Store(RecoveryRequest request, Arm64Instruction insn, ulong pc, RegState state, out string error, List<Stmt> statements)
     {
         error = "";
         if (insn.MemIndexMode != Arm64MemoryIndexMode.Offset || insn.MemAddendReg != Arm64Register.INVALID)
         {
-            error = $"0x{insn.Address:X}: only unsigned immediate stores are lifted.";
+            error = $"0x{pc:X}: only unsigned immediate stores are lifted.";
             return false;
         }
         if (!TryReadReg(insn.MemBase, state, out var baseExpr, out error))
@@ -826,66 +830,76 @@ public static class Arm64Recoverer
         var field = MatchField(request, baseExpr, insn.MemOffset);
         if (field is null)
         {
-            error = $"0x{insn.Address:X}: store is not a known field access. No pointer was invented.";
+            error = $"0x{pc:X}: store is not a known field access. No pointer was invented.";
             return false;
         }
         statements.Add(new StoreFieldStmt(field.IsStatic ? null : baseExpr, field.Name, value)
         {
-            Addresses = [insn.Address]
+            Addresses = [pc]
         });
         return true;
     }
 
-    private static bool Call(RecoveryRequest request, Arm64Instruction insn, RegState state, List<Stmt> statements, out string error)
+    private static bool Call(RecoveryRequest request, Arm64Instruction insn, ulong pc, uint raw, RegState state, List<Stmt> statements, out string error)
     {
         error = "";
-        var target = insn.BranchTarget;
+        var target = SliceAddressing.BranchTarget(pc, raw, Arm64MnemonicKind.Branch);
         if (request.CallTargets is null || !request.CallTargets.TryGetValue(target, out var callee))
         {
-            error = $"0x{insn.Address:X}: call target 0x{target:X} is not in the method map.";
+            error = $"0x{pc:X}: call target 0x{target:X} is not in the method map.";
             return false;
         }
         if (callee.Parameters.Count > 8)
         {
-            error = $"0x{insn.Address:X}: calls with stack arguments are not lifted.";
+            error = $"0x{pc:X}: calls with stack arguments are not lifted.";
             return false;
         }
 
         var args = new List<Expr>();
         var reg = callee.IsStatic ? 0 : 1;
+        Expr? receiverExpr = null;
         if (!callee.IsStatic)
         {
             if (!state.TryGet(0, out var receiver) || receiver.Value is not (ThisExpr or ParamExpr or FieldExpr or CallExpr))
             {
-                error = $"0x{insn.Address:X}: the call receiver is not a lifted reference.";
+                error = $"0x{pc:X}: the call receiver is not a lifted reference.";
                 return false;
             }
+            receiverExpr = receiver.Value;
         }
         foreach (var parameter in callee.Parameters)
         {
             if (!state.TryGet(reg, out var slot))
             {
-                error = $"0x{insn.Address:X}: argument {parameter.Name} is not in a lifted register.";
+                error = $"0x{pc:X}: argument {parameter.Name} is not in a lifted register.";
                 return false;
             }
             args.Add(slot.Value);
             reg++;
         }
 
-        var call = new CallExpr(callee.Name, args, callee.ReturnType);
+        var calleeType = string.IsNullOrEmpty(callee.Namespace) ? callee.DeclaringType : callee.Namespace + "." + callee.DeclaringType;
+        var selfType = string.IsNullOrEmpty(request.Contract.Namespace) ? request.Contract.DeclaringType : request.Contract.Namespace + "." + request.Contract.DeclaringType;
+        var call = new CallExpr(callee.Name, args, callee.ReturnType)
+        {
+            Receiver = callee.IsStatic ? null : receiverExpr,
+            StaticType = callee.IsStatic ? calleeType : null,
+            Target = target,
+            BaseCall = receiverExpr is ThisExpr && (callee.IsVirtual || callee.IsAbstract) && calleeType != selfType
+        };
         state.Clear();
         state.FlagsValid = false;
         if (callee.ReturnType == PrimitiveKind.Void)
         {
-            statements.Add(new ExpressionStmt(call) { Addresses = [insn.Address] });
+            statements.Add(new ExpressionStmt(call) { Addresses = [pc] });
             return true;
         }
 
-        var temp = "call_" + insn.Address.ToString("X");
+        var temp = "call_" + pc.ToString("X");
         var width = callee.ReturnType is PrimitiveKind.Int64 or PrimitiveKind.UInt64 or PrimitiveKind.Reference ? 64 : 32;
         statements.Add(new DeclareStmt(temp, callee.ReturnType == PrimitiveKind.Boolean ? PrimitiveKind.Int32 : callee.ReturnType, call)
         {
-            Addresses = [insn.Address]
+            Addresses = [pc]
         });
         state.Set(0, new LocalExpr(temp, callee.ReturnType), width);
         return true;
@@ -914,7 +928,7 @@ public static class Arm64Recoverer
         return null;
     }
 
-    private static bool TryBranchCondition(Arm64Instruction insn, RegState state, out Expr condition, out string error)
+    private static bool TryBranchCondition(Arm64Instruction insn, ulong pc, RegState state, out Expr condition, out string error)
     {
         condition = new ConstExpr(0, PrimitiveKind.Boolean);
         error = "";
@@ -928,16 +942,16 @@ public static class Arm64Recoverer
         }
 
         if (insn.Mnemonic is Arm64Mnemonic.TBZ or Arm64Mnemonic.TBNZ)
-            return TryBitTest(insn, state, out condition, out error);
+            return TryBitTest(insn, pc, state, out condition, out error);
 
         if (insn.Mnemonic != Arm64Mnemonic.B || insn.MnemonicConditionCode == Arm64ConditionCode.NONE)
         {
-            error = $"0x{insn.Address:X}: expected a conditional branch.";
+            error = $"0x{pc:X}: expected a conditional branch.";
             return false;
         }
         if (!state.FlagsValid || state.FlagLeft is null || state.FlagRight is null)
         {
-            error = $"0x{insn.Address:X}: the branch does not follow a lifted CMP.";
+            error = $"0x{pc:X}: the branch does not follow a lifted CMP.";
             return false;
         }
 
@@ -954,7 +968,7 @@ public static class Arm64Recoverer
         };
         if (opText.Length == 0)
         {
-            error = $"0x{insn.Address:X}: condition {insn.MnemonicConditionCode} is not lifted.";
+            error = $"0x{pc:X}: condition {insn.MnemonicConditionCode} is not lifted.";
             return false;
         }
         if (!signed)
@@ -984,7 +998,7 @@ public static class Arm64Recoverer
         return op.Length == 0 ? null : new BinaryExpr(op, binary.Left, binary.Right, PrimitiveKind.Boolean);
     }
 
-    private static bool TryOperand(Arm64Instruction insn, int index, RegState state, out Expr value, out string error)
+    private static bool TryOperand(Arm64Instruction insn, ulong pc, int index, RegState state, out Expr value, out string error)
     {
         var kind = index switch
         {
@@ -1016,7 +1030,7 @@ public static class Arm64Recoverer
         if (kind == Arm64OperandKind.Register)
             return TryReadReg(reg, state, out value, out error);
         value = new ConstExpr(0, PrimitiveKind.Int32);
-        error = $"0x{insn.Address:X}: operand {index} is {kind}, which is not lifted.";
+        error = $"0x{pc:X}: operand {index} is {kind}, which is not lifted.";
         return false;
     }
 
@@ -1108,7 +1122,7 @@ public static class Arm64Recoverer
 
     private static int WidthOf(PrimitiveKind type) => type is PrimitiveKind.Int64 or PrimitiveKind.UInt64 or PrimitiveKind.Reference ? 64 : 32;
 
-    private static bool TryMatchIfReturn(List<Arm64Instruction> insns, List<Block> reachable, Block entry, out Block? taken, out Block? fallthrough)
+    private static bool TryMatchIfReturn(RecoveryRequest request, List<Arm64Instruction> insns, List<Block> reachable, Block entry, out Block? taken, out Block? fallthrough)
     {
         taken = null;
         fallthrough = null;
@@ -1116,8 +1130,8 @@ public static class Arm64Recoverer
             return false;
         if (insns[entry.Last].Mnemonic is not (Arm64Mnemonic.B or Arm64Mnemonic.CBZ or Arm64Mnemonic.CBNZ or Arm64Mnemonic.TBZ or Arm64Mnemonic.TBNZ))
             return false;
-        var target = BranchTargetAddress(insns[entry.Last]);
-        var takenBlock = entry.Succ.Select(i => reachable.First(b => b.Id == i)).FirstOrDefault(b => insns[b.First].Address == target);
+        var target = BranchTargetAddress(insns[entry.Last], Pc(request, entry.Last), RawAt(request, entry.Last));
+        var takenBlock = entry.Succ.Select(i => reachable.First(b => b.Id == i)).FirstOrDefault(b => Pc(request, b.First) == target);
         var fallthroughBlock = entry.Succ.Select(i => reachable.First(b => b.Id == i)).FirstOrDefault(b => !ReferenceEquals(b, takenBlock));
         taken = takenBlock;
         fallthrough = fallthroughBlock;
@@ -1181,11 +1195,20 @@ public static class Arm64Recoverer
                 throw new AnalysisLimitException(MethodRecoveryStatus.TimedOut, "TimedOut: this method exceeded its analysis deadline before a body was recovered.");
         }
         var indexByAddress = new Dictionary<ulong, int>();
+        var baseAddress = request?.VirtualAddress ?? 0;
         for (var i = 0; i < insns.Count; i++)
         {
             if ((i & 255) == 0)
                 Check();
-            indexByAddress[insns[i].Address] = i;
+            var computed = baseAddress + (ulong)i * 4;
+            if (indexByAddress.TryGetValue(computed, out var previous))
+            {
+                throw new AddressInvariantException(
+                    "Duplicate instruction address 0x" + computed.ToString("X") +
+                    ". First slice index " + previous + ", Disarm address 0x" + insns[previous].Address.ToString("X") + ", text " + insns[previous] +
+                    ". Second slice index " + i + ", Disarm address 0x" + insns[i].Address.ToString("X") + ", text " + insns[i] + ".");
+            }
+            indexByAddress.Add(computed, i);
         }
 
         var leaders = new SortedSet<int> { 0 };
@@ -1197,7 +1220,7 @@ public static class Arm64Recoverer
                 continue;
             if (FallsThrough(insns[i]) && i + 1 < insns.Count)
                 leaders.Add(i + 1);
-            var target = BranchTargetAddress(insns[i]);
+            var target = BranchTargetAddress(insns[i], baseAddress + (ulong)i * 4, RawAt(request, i));
             if (target is not null && indexByAddress.ContainsKey(target.Value))
                 leaders.Add(indexByAddress[target.Value]);
             else if (IsTerminator(insns[i]) && insns[i].Mnemonic != Arm64Mnemonic.RET && i + 1 < insns.Count && !FallsThrough(insns[i]))
@@ -1233,7 +1256,7 @@ public static class Arm64Recoverer
 
             if (IsTerminator(term))
             {
-                var target = BranchTargetAddress(term);
+                var target = BranchTargetAddress(term, baseAddress + (ulong)block.Last * 4, RawAt(request, block.Last));
                 if (target is null)
                 {
                     block.External = true;
@@ -1270,37 +1293,48 @@ public static class Arm64Recoverer
         insn.Mnemonic is Arm64Mnemonic.CBZ or Arm64Mnemonic.CBNZ or Arm64Mnemonic.TBZ or Arm64Mnemonic.TBNZ
         || (insn.Mnemonic == Arm64Mnemonic.B && insn.MnemonicConditionCode != Arm64ConditionCode.NONE);
 
-    private static ulong? BranchTargetAddress(Arm64Instruction insn)
+    private static ulong? BranchTargetAddress(Arm64Instruction insn, ulong pc, uint raw)
     {
-        if (insn.Mnemonic is Arm64Mnemonic.B or Arm64Mnemonic.BL)
-            return insn.BranchTarget;
+        if (insn.Mnemonic == Arm64Mnemonic.BL || (insn.Mnemonic == Arm64Mnemonic.B && insn.MnemonicConditionCode == Arm64ConditionCode.NONE))
+            return SliceAddressing.BranchTarget(pc, raw, Arm64MnemonicKind.Branch);
+        if (insn.Mnemonic == Arm64Mnemonic.B)
+            return SliceAddressing.BranchTarget(pc, raw, Arm64MnemonicKind.CompareBranch);
         if (insn.Mnemonic is Arm64Mnemonic.CBZ or Arm64Mnemonic.CBNZ)
-            return PcRelative(insn, 1);
+            return SliceAddressing.BranchTarget(pc, raw, Arm64MnemonicKind.CompareBranch);
         if (insn.Mnemonic is Arm64Mnemonic.TBZ or Arm64Mnemonic.TBNZ)
-            return unchecked(insn.Address + (ulong)insn.Op2Imm);
+            return SliceAddressing.BranchTarget(pc, raw, Arm64MnemonicKind.TestBranch);
         return null;
     }
 
-    private static bool TryBitTest(Arm64Instruction insn, RegState state, out Expr condition, out string error)
+    private static ulong Pc(RecoveryRequest request, int index) => SliceAddressing.At(request.VirtualAddress, index);
+
+    private static uint RawAt(RecoveryRequest? request, int index)
+    {
+        if (request is null || index < 0 || (index + 1) * 4 > request.Code.Length)
+            return 0;
+        return BitConverter.ToUInt32(request.Code, index * 4);
+    }
+
+    private static bool TryBitTest(Arm64Instruction insn, ulong pc, RegState state, out Expr condition, out string error)
     {
         condition = new ConstExpr(0, PrimitiveKind.Boolean);
         if (!TryReadReg(insn.Op0Reg, state, out var value, out error))
             return false;
         if (value.Type is PrimitiveKind.Reference)
         {
-            error = $"0x{insn.Address:X}: {insn.Mnemonic} tests a reference. That test was not rewritten as an integer.";
+            error = $"0x{pc:X}: {insn.Mnemonic} tests a reference. That test was not rewritten as an integer.";
             return false;
         }
 
         var bit = insn.Op1Imm;
         if (bit is < 0 or > 62)
         {
-            error = $"0x{insn.Address:X}: bit {bit} of {insn.Mnemonic} is outside the lifted range.";
+            error = $"0x{pc:X}: bit {bit} of {insn.Mnemonic} is outside the lifted range.";
             return false;
         }
         if (bit > 31 && value.Type is not (PrimitiveKind.Int64 or PrimitiveKind.UInt64))
         {
-            error = $"0x{insn.Address:X}: bit {bit} does not fit the lifted value.";
+            error = $"0x{pc:X}: bit {bit} does not fit the lifted value.";
             return false;
         }
 
@@ -1311,9 +1345,6 @@ public static class Arm64Recoverer
         error = "";
         return true;
     }
-
-    private static ulong PcRelative(Arm64Instruction insn, int operand) =>
-        operand == 1 ? insn.Op1PcRelImm : insn.Op0PcRelImm;
 
     private static List<Block> Reachable(List<Block> blocks)
     {
@@ -1331,7 +1362,7 @@ public static class Arm64Recoverer
         return blocks.Where(b => seen.Contains(b.Id)).ToList();
     }
 
-    private static List<NativeInstruction> Render(byte[] code, List<Arm64Instruction> instructions)
+    private static List<NativeInstruction> Render(byte[] code, ulong baseAddress, List<Arm64Instruction> instructions)
     {
         var list = new List<NativeInstruction>(instructions.Count);
         for (var i = 0; i < instructions.Count; i++)
@@ -1339,11 +1370,12 @@ public static class Arm64Recoverer
             var slice = code.AsSpan(i * 4, 4);
             list.Add(new NativeInstruction
             {
-                Address = "0x" + instructions[i].Address.ToString("X"),
+                Address = "0x" + SliceAddressing.At(baseAddress, i).ToString("X"),
                 Bytes = Convert.ToHexString(slice).ToLowerInvariant(),
                 Text = instructions[i].ToString()
             });
         }
+        SliceAddressing.RequireDistinct(list);
         return list;
     }
 

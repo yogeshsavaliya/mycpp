@@ -26,7 +26,7 @@ public static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine(ex.GetType().Name + ": " + ex.Message);
+            Console.Error.WriteLine(ex.ToString());
             return WorkerHost.ExitAnalysis;
         }
     }

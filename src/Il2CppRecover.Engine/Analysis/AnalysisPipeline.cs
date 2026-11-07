@@ -131,8 +131,14 @@ public static class AnalysisPipeline
         if (catalog is null)
             return records;
 
-        var nativeByIndex = (engine?.Methods ?? []).Where(m => m.MetadataIndex >= 0).GroupBy(m => m.MetadataIndex).ToDictionary(g => g.Key, g => g.First());
-        var catalogTypes = catalog.Images.SelectMany(i => i.Types).GroupBy(t => t.MetadataIndex).ToDictionary(g => g.Key, g => g.First());
+        var nativeByIndex = CallTargetIndex.IndexByMetadata(
+            (engine?.Methods ?? []).Where(m => m.MetadataIndex >= 0),
+            m => m.MetadataIndex,
+            m => m.Image + " " + m.Namespace + "." + m.DeclaringType + "::" + m.Name + " va=0x" + m.VirtualAddress.ToString("X"));
+        var catalogTypes = CallTargetIndex.IndexByMetadata(
+            catalog.Images.SelectMany(i => i.Types),
+            t => t.MetadataIndex,
+            t => t.Namespace + "." + t.Name + " index=" + t.MetadataIndex);
         var ctx = BuildImageContext(catalog, catalogTypes, engine, nativeByIndex, binary, elf, options, cancellationToken, progress, trace, pace);
         var orderedAddresses = nativeByIndex.Values.Select(m => m.VirtualAddress).Where(a => a != 0).Distinct().Order().ToList();
         var framework = 0;
@@ -200,6 +206,7 @@ public static class AnalysisPipeline
     {
         public CodeSpace? Space;
         public Dictionary<ulong, MethodContract> CallTargets = [];
+        public int SharedNativeAddresses;
         public Dictionary<string, IReadOnlyList<FieldContract>> TypeFields = new(StringComparer.Ordinal);
         public Dictionary<int, EngineTypeInfo> TypesByIndex = [];
         public Dictionary<string, EngineTypeInfo> TypesByFullName = new(StringComparer.Ordinal);
@@ -235,13 +242,30 @@ public static class AnalysisPipeline
         var ctx = new ImageContext();
         foreach (var t in engine?.Types ?? [])
         {
-            if (t.MetadataIndex >= 0)
-                ctx.TypesByIndex.TryAdd(t.MetadataIndex, t);
+            if (t.MetadataIndex < 0)
+                continue;
+            if (ctx.TypesByIndex.TryGetValue(t.MetadataIndex, out var existing))
+            {
+                throw new InvalidOperationException(
+                    "Two engine types share metadata index " + t.MetadataIndex +
+                    ". First: " + existing.Image + " " + existing.Namespace + "." + existing.Name +
+                    ". Second: " + t.Image + " " + t.Namespace + "." + t.Name + ".");
+            }
+            ctx.TypesByIndex.Add(t.MetadataIndex, t);
         }
         foreach (var (index, info) in ctx.TypesByIndex)
         {
-            if (catalogTypes.TryGetValue(index, out var ct))
-                ctx.TypesByFullName.TryAdd(FullName(ct, catalogTypes), info);
+            if (!catalogTypes.TryGetValue(index, out var ct))
+                continue;
+            var name = FullName(ct, catalogTypes);
+            if (ctx.TypesByFullName.TryGetValue(name, out var existing))
+            {
+                throw new InvalidOperationException(
+                    "Two types share the name " + name +
+                    ". First: " + existing.Image + " index " + existing.MetadataIndex +
+                    ". Second: " + info.Image + " index " + info.MetadataIndex + ".");
+            }
+            ctx.TypesByFullName.Add(name, info);
         }
         foreach (var (name, info) in ctx.TypesByFullName)
             ctx.TypeFields[name] = LifterFields(info, ctx);
@@ -249,8 +273,9 @@ public static class AnalysisPipeline
         if (binary is null || elf is null)
             return ctx;
 
-        var entries = nativeByIndex.Values.Select(m => m.VirtualAddress).Where(a => a != 0).Distinct().ToList();
+        var entries = CallTargetIndex.ExecutableEntries(nativeByIndex.Values.Select(m => m.VirtualAddress)).ToList();
         ctx.Space = CodeSpace.ForElf(elf, binary, entries);
+        var calleePairs = new List<(ulong Address, MethodContract Contract)>();
         foreach (var image in catalog.Images)
         {
             foreach (var type in image.Types)
@@ -262,21 +287,14 @@ public static class AnalysisPipeline
                 {
                     if (!nativeByIndex.TryGetValue(method.MetadataIndex, out var native) || native.VirtualAddress == 0)
                         continue;
-                    if (ctx.CallTargets.ContainsKey(native.VirtualAddress))
-                    {
-                        ctx.CallTargets[native.VirtualAddress] = new MethodContract
-                        {
-                            Name = method.Name,
-                            DeclaringType = nestedName,
-                            Namespace = ns,
-                            UnsupportedReason = "several metadata methods share this native address, so the callee is ambiguous"
-                        };
-                        continue;
-                    }
-                    ctx.CallTargets[native.VirtualAddress] = CalleeContract(image, nestedName, ns, method, native, ctx);
+                    calleePairs.Add((native.VirtualAddress, CalleeContract(image, nestedName, ns, method, native, ctx)));
                 }
             }
         }
+        var indexed = CallTargetIndex.Build(calleePairs);
+        foreach (var (address, contract) in indexed.Resolved)
+            ctx.CallTargets[address] = contract;
+        ctx.SharedNativeAddresses = indexed.SharedAddresses;
 
         progress?.Report(new ProgressEvent { Stage = "Identifying runtime helpers", Detail = "pass 1", Kind = "helper", Completed = 0, Total = entries.Count });
         var scan = RuntimeHelperScan.Scan(ctx.Space, entries, cancellationToken, (done, total, phase) =>
@@ -296,7 +314,9 @@ public static class AnalysisPipeline
         {
             ["pass1"] = scan.Pass1Functions,
             ["pass2"] = scan.Pass2Functions,
-            ["helpers"] = ctx.Helpers.Count
+            ["helpers"] = ctx.Helpers.Count,
+            ["sharedNativeAddresses"] = ctx.SharedNativeAddresses,
+            ["callTargets"] = ctx.CallTargets.Count
         });
         progress?.Report(new ProgressEvent
         {
@@ -390,6 +410,8 @@ public static class AnalysisPipeline
             Namespace = ns,
             Assembly = image.Name,
             IsStatic = method.IsStatic,
+            IsVirtual = method.IsVirtual,
+            IsAbstract = method.IsAbstract,
             IsGeneric = method.IsGeneric,
             ReturnType = ret,
             DeclaredReturnType = native.ReturnType,
@@ -413,6 +435,7 @@ public static class AnalysisPipeline
         var status = MethodRecoveryStatus.MetadataOnly;
         var provenance = new List<ProvenanceLink>();
         string? candidate = null;
+        string? internalStack = null;
         var boundary = BoundaryEvidence.NotApplicable;
 
         if (kind is MethodKind.Abstract or MethodKind.External)
@@ -464,12 +487,14 @@ public static class AnalysisPipeline
                     ["signature"] = signature,
                     ["metadataIndex"] = method.MetadataIndex,
                     ["address"] = address,
+                    ["fileOffset"] = fileOffset,
+                    ["sliceLength"] = length,
                     ["stage"] = "lift"
                 });
                 MethodBodyResult? lifted = null;
                 try
                 {
-                    lifted = Arm64Recoverer.Recover(new RecoveryRequest
+                    lifted = MethodIsolation.TryRecover(() => Arm64Recoverer.Recover(new RecoveryRequest
                     {
                         Code = code,
                         VirtualAddress = native.VirtualAddress,
@@ -496,7 +521,7 @@ public static class AnalysisPipeline
                                 Kind = "heartbeat"
                             });
                         }
-                    });
+                    }), out internalStack);
                 }
                 finally
                 {
@@ -508,11 +533,14 @@ public static class AnalysisPipeline
                         ["signature"] = signature,
                         ["metadataIndex"] = method.MetadataIndex,
                         ["address"] = address,
+                        ["fileOffset"] = fileOffset,
+                        ["sliceLength"] = length,
                         ["stage"] = "lift",
                         ["durationMs"] = elapsedMs,
                         ["instructions"] = lifted?.InstructionCount,
                         ["blocks"] = lifted?.BlockCount,
-                        ["status"] = lifted?.Status.ToString() ?? "exception"
+                        ["status"] = lifted?.Status.ToString() ?? "exception",
+                        ["stack"] = internalStack
                     });
                 }
                 if (lifted is null)
@@ -563,7 +591,8 @@ public static class AnalysisPipeline
             CSharp = csharp,
             CSharpIsPlaceholder = placeholder,
             CandidateCSharp = candidate,
-            Provenance = provenance
+            Provenance = provenance,
+            InternalStack = internalStack
         };
     }
 

@@ -347,6 +347,8 @@ public static class CSharpEmitter
     {
         var args = string.Join(", ", call.Args.Select(EmitExpr));
         var name = SanitizeIdent(call.Name);
+        if (call.BaseCall)
+            return "base." + name + "(" + args + ")";
         if (call.Receiver is not null)
             return EmitExpr(call.Receiver) + "." + name + "(" + args + ")";
         if (call.StaticType is not null)

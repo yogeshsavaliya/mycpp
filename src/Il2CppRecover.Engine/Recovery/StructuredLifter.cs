@@ -1496,11 +1496,15 @@ public static class StructuredLifter
             }
             if (callee.Name is ".ctor" or ".cctor")
                 throw new LiftException($"0x{site:X}: a direct constructor call outside an object-creation pattern is not lifted.");
+            var baseCall = receiver is ThisExpr && (callee.IsVirtual || callee.IsAbstract) && calleeType != _selfType;
+            if (baseCall)
+                EvidenceNotes.Add($"0x{site:X}: direct call on this to virtual {calleeType}::{callee.Name} is emitted as base.{callee.Name}.");
             return new CallExpr(callee.Name, args, callee.ReturnType)
             {
                 Receiver = receiver,
                 StaticType = callee.IsStatic ? calleeType : null,
                 Target = target,
+                BaseCall = baseCall,
                 RefType = callee.ReturnType == PrimitiveKind.Reference ? callee.DeclaredReturnType : null
             };
         }

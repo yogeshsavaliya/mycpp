@@ -36,6 +36,7 @@ public sealed class JobRecord
     public string? FinishedUtc { get; init; }
     public int? ExitCode { get; init; }
     public string? Error { get; init; }
+    public string? FailureDetail { get; init; }
     public string Log { get; init; } = "";
     public required string OutputDir { get; init; }
     public string? RequestedAbi { get; init; }
@@ -108,6 +109,7 @@ public sealed class StudioDatabase
                 INSERT OR IGNORE INTO settings (id, theme, timeout_seconds, default_abi) VALUES (1, 'light', 180, 'arm64-v8a');
                 """);
             EnsureColumn(connection, "settings", "body_scope", "TEXT NOT NULL DEFAULT 'full'");
+            EnsureColumn(connection, "jobs", "failure_detail", "TEXT");
             return 0;
         });
     }
@@ -268,7 +270,7 @@ public sealed class StudioDatabase
     public JobRecord? LatestCompletedJob(string projectId) => With(connection =>
     {
         using var command = connection.CreateCommand();
-        command.CommandText = JobSelect + " WHERE j.project_id = $id AND j.state IN ('Completed','CompletedWithLimitations') ORDER BY j.created_utc DESC LIMIT 1;";
+        command.CommandText = JobSelect + " WHERE j.project_id = $id AND j.state IN ('Completed','CompletedWithLimitations','CompletedWithInternalErrors') ORDER BY j.created_utc DESC LIMIT 1;";
         Add(command, "$id", projectId);
         return ReadJobs(command).FirstOrDefault();
     });
@@ -320,20 +322,21 @@ public sealed class StudioDatabase
         });
     }
 
-    public void Finish(string id, string state, string stage, int? exitCode, string? error)
+    public void Finish(string id, string state, string stage, int? exitCode, string? error, string? failureDetail = null)
     {
         With(connection =>
         {
             using var command = connection.CreateCommand();
             command.CommandText = """
                 UPDATE jobs
-                SET state = $state, stage = $stage, exit_code = $code, error = $error, finished_utc = $now
+                SET state = $state, stage = $stage, exit_code = $code, error = $error, failure_detail = $detail, finished_utc = $now
                 WHERE id = $id;
                 """;
             Add(command, "$state", state);
             Add(command, "$stage", stage);
             Add(command, "$code", exitCode);
             Add(command, "$error", error);
+            Add(command, "$detail", failureDetail);
             Add(command, "$now", Now());
             Add(command, "$id", id);
             command.ExecuteNonQuery();
@@ -383,7 +386,7 @@ public sealed class StudioDatabase
         return (
             Scalar("SELECT COUNT(*) FROM projects;"),
             Scalar("SELECT COUNT(*) FROM jobs WHERE state IN ('Queued','Validating','Extracting','ReadingMetadata','AnalyzingNativeCode','GeneratingOutput');"),
-            Scalar("SELECT COUNT(*) FROM jobs WHERE state IN ('Completed','CompletedWithLimitations');"),
+            Scalar("SELECT COUNT(*) FROM jobs WHERE state IN ('Completed','CompletedWithLimitations','CompletedWithInternalErrors');"),
             Scalar("SELECT COUNT(*) FROM jobs WHERE state = 'Failed';")
         );
     });
@@ -430,7 +433,7 @@ public sealed class StudioDatabase
     }
 
     private const string JobSelect = """
-        SELECT j.id, j.project_id, p.name, j.state, j.stage, j.created_utc, j.started_utc, j.finished_utc, j.exit_code, j.error, j.log, j.output_dir, j.requested_abi, j.supplied_unity_version, j.method_done, j.method_total
+        SELECT j.id, j.project_id, p.name, j.state, j.stage, j.created_utc, j.started_utc, j.finished_utc, j.exit_code, j.error, j.log, j.output_dir, j.requested_abi, j.supplied_unity_version, j.method_done, j.method_total, j.failure_detail
         FROM jobs j JOIN projects p ON p.id = j.project_id
         """;
 
@@ -483,6 +486,7 @@ public sealed class StudioDatabase
                 FinishedUtc = reader.IsDBNull(7) ? null : reader.GetString(7),
                 ExitCode = reader.IsDBNull(8) ? null : reader.GetInt32(8),
                 Error = reader.IsDBNull(9) ? null : reader.GetString(9),
+                FailureDetail = reader.FieldCount > 16 && !reader.IsDBNull(16) ? reader.GetString(16) : null,
                 Log = reader.IsDBNull(10) ? "" : reader.GetString(10),
                 OutputDir = reader.GetString(11),
                 RequestedAbi = reader.IsDBNull(12) ? null : reader.GetString(12),

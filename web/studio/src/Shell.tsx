@@ -37,10 +37,12 @@ export function Shell({ children }: { children: ReactNode }) {
 export function Status({ state }: { state: string | null }) {
   const label = state ?? "Not started";
   const tone = state === "Failed" ? "bad"
-    : state === "CompletedWithLimitations" || state === "Cancelled" ? "warn"
+    : state === "CompletedWithLimitations" || state === "CompletedWithInternalErrors" || state === "TimedOut" || state === "Cancelled" ? "warn"
     : state === "Completed" ? "good"
     : "neutral";
   const text = state === "CompletedWithLimitations" ? "Completed with Limitations"
+    : state === "CompletedWithInternalErrors" ? "Completed with internal errors"
+    : state === "TimedOut" ? "Timed out"
     : state === "ReadingMetadata" ? "Reading Metadata"
     : state === "AnalyzingNativeCode" ? "Analyzing Native Code"
     : state === "GeneratingOutput" ? "Generating Output"

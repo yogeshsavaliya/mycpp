@@ -97,8 +97,16 @@ public sealed class DiscoveredFunction
     public List<string> Evidence { get; } = [];
     public HashSet<ulong> TailCalls { get; } = [];
     public Dictionary<ulong, string> NoReturnCalls { get; } = [];
+    public List<(ulong From, ulong To)> Edges { get; } = [];
     public bool HasBackEdgeCandidate { get; set; }
     public bool ControlFlowClosed => Issues.Count == 0;
+    private readonly HashSet<(ulong From, ulong To)> _edgeSet = [];
+
+    public void NoteEdge(ulong from, ulong to)
+    {
+        if (_edgeSet.Add((from, to)))
+            Edges.Add((from, to));
+    }
 }
 
 /// <summary>
@@ -131,8 +139,14 @@ public static class FunctionDiscovery
                     cancellationToken.ThrowIfCancellationRequested();
                     pulse?.Invoke();
                 }
-                if (fn.Instructions.ContainsKey(address))
+                if (fn.Instructions.TryGetValue(address, out var known))
+                {
+                    if (space.ReadWord(address) is not uint again)
+                        fn.Issues.Add($"0x{address:X}: repeated visit could not read the instruction stored as word 0x{known.Word:X8}.");
+                    else if (again != known.Word)
+                        fn.Issues.Add($"0x{address:X}: repeated visit decoded word 0x{again:X8}, stored word 0x{known.Word:X8}. The block was not overwritten.");
                     break;
+                }
                 if (fn.Instructions.Count >= limit)
                 {
                     fn.Issues.Add(limit == MaxInstructions
@@ -166,6 +180,7 @@ public static class FunctionDiscovery
                         {
                             if (op.Target <= address)
                                 fn.HasBackEdgeCandidate = true;
+                            fn.NoteEdge(address, op.Target);
                             address = op.Target;
                             continue;
                         }
@@ -180,12 +195,15 @@ public static class FunctionDiscovery
                         {
                             if (op.Target <= address)
                                 fn.HasBackEdgeCandidate = true;
+                            fn.NoteEdge(address, op.Target);
                             work.Push(op.Target);
                         }
                         else
                         {
                             fn.Issues.Add($"0x{address:X}: conditional branch target 0x{op.Target:X} is outside the slice ({Describe(space, entry, op.Target)}). Conditional tail calls are not assumed.");
                         }
+                        if (Inside(next))
+                            fn.NoteEdge(address, next);
                         address = next;
                         continue;
                     case A64Kind.Bl:
@@ -201,9 +219,13 @@ public static class FunctionDiscovery
                             fn.Evidence.Add($"0x{op.Target:X} treated as noreturn: {evidence}.");
                             goto endPath;
                         }
+                        if (Inside(next))
+                            fn.NoteEdge(address, next);
                         address = next;
                         continue;
                     default:
+                        if (Inside(next))
+                            fn.NoteEdge(address, next);
                         address = next;
                         continue;
                 }
