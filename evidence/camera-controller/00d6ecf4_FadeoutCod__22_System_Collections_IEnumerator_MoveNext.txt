@@ -1,0 +1,110 @@
+status: recoveredUnvalidated
+featureComplete: True
+address: 0xD6ECF4
+name: <FadeoutCo>d__22::System.Collections.IEnumerator.MoveNext
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6ED10: elided IL2CPP lazy runtime-metadata init. The flag byte, the bit-0 test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.
+Evidence: 0xD6EE18: call target 0xCA5EF0 raises System.NullReferenceException. The type name is a read-only string reached before __cxa_throw, and the call takes no exception object.
+Evidence: 0xD6EDAC: pair access split into <currentFov>5__2 at 0x2C and <targetFov>5__3 at 0x30.
+Evidence: 0xD6EDDC: address 0x1C7AAE0 is a metadata Type slot (System.Int32).
+Evidence: 0xD6EDE8: load of resolved metadata Type System.Int32.
+Evidence: 0xD6EDEC: box(System.Int32) of the value at sp+0xFFFFFFFFFFFFFFDC. The helper at 0xCA5DE0 is one branch.
+Evidence: 0xD6ED64: a 32-bit general-register store into <t>5__4 is the IEEE bit pattern, not a numeric cast.
+Evidence: 0xD6ED68: pair access split into <currentFov>5__2 at 0x2C and <targetFov>5__3 at 0x30.
+
+csharp:
+unchecked
+{
+    int t1 = this.__1__state;
+    SnakeWarzOnline.CameraController t2 = this.__4__this;
+    if ((t1 == 1))
+    {
+        float t3 = this._t_5__4;
+        this.__1__state = -1;
+        if ((!(t3 < 1f)))
+        {
+            return (0 != 0);
+        }
+        else
+        {
+            float t4 = UnityEngine.Time.get_deltaTime();
+            float t5 = this._d;
+            this._t_5__4 = (t3 + (t4 / t5));
+            if ((t2 == null))
+            {
+                throw new System.NullReferenceException();
+            }
+            else
+            {
+                UnityEngine.Camera t6 = t2.myCamera;
+                if ((t6 == null))
+                {
+                    throw new System.NullReferenceException();
+                }
+                else
+                {
+                    float t7 = this._currentFov_5__2;
+                    t6.set_orthographicSize((t7 + (((!((t3 + (t4 / t5)) < 0f)) ? (float.IsNaN((t3 + (t4 / t5))) || float.IsNaN(1f) ? float.NaN : ((t3 + (t4 / t5)) < 1f || ((t3 + (t4 / t5)) == 1f && float.IsNegative((t3 + (t4 / t5))))) ? (t3 + (t4 / t5)) : 1f) : 0f) * (this._targetFov_5__3 - t7))));
+                    this.__2__current = ((object)(int)0);
+                    this.__1__state = 1;
+                    return (1 != 0);
+                }
+            }
+        }
+    }
+    else
+    {
+        if ((t1 != 0))
+        {
+            return (0 != 0);
+        }
+        else
+        {
+            this.__1__state = -1;
+            if ((t2 == null))
+            {
+                throw new System.NullReferenceException();
+            }
+            else
+            {
+                UnityEngine.Camera t10 = t2.myCamera;
+                if ((t10 == null))
+                {
+                    throw new System.NullReferenceException();
+                }
+                else
+                {
+                    float t11 = t10.get_orthographicSize();
+                    this._t_5__4 = 0f;
+                    this._currentFov_5__2 = t11;
+                    this._targetFov_5__3 = (t11 + 3.5f);
+                    float t12 = UnityEngine.Time.get_deltaTime();
+                    float t13 = this._d;
+                    this._t_5__4 = (0f + (t12 / t13));
+                    if ((t2 == null))
+                    {
+                        throw new System.NullReferenceException();
+                    }
+                    else
+                    {
+                        UnityEngine.Camera t14 = t2.myCamera;
+                        if ((t14 == null))
+                        {
+                            throw new System.NullReferenceException();
+                        }
+                        else
+                        {
+                            float t15 = this._currentFov_5__2;
+                            t14.set_orthographicSize((t15 + (((!((0f + (t12 / t13)) < 0f)) ? (float.IsNaN((0f + (t12 / t13))) || float.IsNaN(1f) ? float.NaN : ((0f + (t12 / t13)) < 1f || ((0f + (t12 / t13)) == 1f && float.IsNegative((0f + (t12 / t13))))) ? (0f + (t12 / t13)) : 1f) : 0f) * (this._targetFov_5__3 - t15))));
+                            this.__2__current = ((object)(int)0);
+                            this.__1__state = 1;
+                            return (1 != 0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

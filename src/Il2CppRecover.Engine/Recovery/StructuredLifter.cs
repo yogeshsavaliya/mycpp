@@ -29,6 +29,8 @@ public static class StructuredLifter
         var blocks = BuildBlocks(fn, out var blockAt);
         var elision = new List<string>();
         MetadataInitGuard.Elide(blocks, blockAt, elision);
+        if (Il2CppClassLayout.TryGet(request.MetadataVersion, out var staticFields, out var cctorOffset))
+            ClassInitGuard.Elide(blocks, blockAt, request.ResolveMetadataSlot, staticFields, cctorOffset, elision);
         if (HasCycle(blocks, blockAt, request))
         {
             var loop = new Outcome { HasLoop = true, BlockCount = blocks.Count };
@@ -50,6 +52,7 @@ public static class StructuredLifter
             if (fallsOff is not null)
                 throw new LiftException("A path reaches the end of the structured region without a return.");
             Cleanup.Run(body, ctx.Check);
+            ElideClassInit(body, ctx.EvidenceNotes);
             var ok = new Outcome { Statements = body, CandidateOnly = ctx.CandidateOnly, BlockCount = blocks.Count };
             ok.Diagnostics.AddRange(ctx.Notes);
             ok.Evidence.AddRange(elision);
@@ -77,6 +80,7 @@ public static class StructuredLifter
         public ulong Next;
         public ulong Taken;
         public List<ulong> Succ = [];
+        public List<MetadataSlot> ClassInits = [];
     }
 
     private static List<Block> BuildBlocks(DiscoveredFunction fn, out Dictionary<ulong, Block> blockAt)
@@ -225,6 +229,98 @@ public static class StructuredLifter
 
     internal sealed class LiftException(string message) : Exception(message);
 
+    private static void ElideClassInit(List<Stmt> body, List<string> evidence)
+    {
+        for (var i = 0; i < body.Count; i++)
+        {
+            if (body[i] is ClassInitStmt init && i + 1 < body.Count && CoversClassInit(body[i + 1], init.TypeName))
+            {
+                evidence.Add("The class initializer of " + init.TypeName + " runs as part of the next static member access, so the explicit check was not emitted again.");
+                body.RemoveAt(i);
+                i--;
+                continue;
+            }
+            switch (body[i])
+            {
+                case IfStmt branch:
+                    ElideClassInit(branch.WhenTrue, evidence);
+                    ElideClassInit(branch.WhenFalse, evidence);
+                    break;
+                case WhileStmt loop:
+                    ElideClassInit(loop.Body, evidence);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The next statement covers an explicit class init when it reads or calls a static member of
+    /// that type before any other call. C# runs the type initializer at that access.
+    /// </summary>
+    private static bool CoversClassInit(Stmt stmt, string type)
+    {
+        if (stmt.StaticOwner == type)
+            return true;
+        return stmt switch
+        {
+            IfStmt branch => FirstEffect(branch.Condition, type) == true,
+            ReturnStmt { Value: { } value } => FirstEffect(value, type) == true,
+            StoreFieldStmt store => FirstEffect(store.Value, type) == true || store.Instance is not null && FirstEffect(store.Instance, type) == true,
+            ExpressionStmt expr => FirstEffect(expr.Value, type) == true,
+            AssignStmt assign => FirstEffect(assign.Value, type) == true,
+            DeclareStmt declare => FirstEffect(declare.Value, type) == true,
+            _ => false
+        };
+    }
+
+    /// <summary>True when a static of <paramref name="type"/> is evaluated before any other call.</summary>
+    private static bool? FirstEffect(Expr? expr, string type)
+    {
+        switch (expr)
+        {
+            case null:
+                return null;
+            case FieldExpr field when field.StaticType == type:
+                return true;
+            case FieldExpr field:
+                return FirstEffect(field.Instance, type);
+            case CallExpr call when call.StaticType == type:
+                return true;
+            case CallExpr call:
+            {
+                var receiver = FirstEffect(call.Receiver, type);
+                if (receiver is not null)
+                    return receiver;
+                foreach (var arg in call.Args)
+                {
+                    var effect = FirstEffect(arg, type);
+                    if (effect is not null)
+                        return effect;
+                }
+                return false;
+            }
+            case BinaryExpr binary:
+            {
+                var left = FirstEffect(binary.Left, type);
+                return left is null ? FirstEffect(binary.Right, type) : left;
+            }
+            case UnaryExpr unary:
+                return FirstEffect(unary.Value, type);
+            case CastExpr cast:
+                return FirstEffect(cast.Value, type);
+            case ConditionalExpr cond:
+            {
+                var first = FirstEffect(cond.Condition, type);
+                if (first is not null)
+                    return first;
+                var whenTrue = FirstEffect(cond.WhenTrue, type);
+                return whenTrue is null ? FirstEffect(cond.WhenFalse, type) : whenTrue;
+            }
+            default:
+                return null;
+        }
+    }
+
     private sealed class Ctx
     {
         private readonly RecoveryRequest _req;
@@ -349,7 +445,16 @@ public static class StructuredLifter
             foreach (var p in _req.Contract.Parameters)
             {
                 var expr = new ParamExpr(p.Name, p.Type) { RefType = p.Type == PrimitiveKind.Reference ? p.DeclaredType : null, RefTypeId = p.Type == PrimitiveKind.Reference ? p.DeclaredTypeId : null };
-                if (p.Type is PrimitiveKind.Single or PrimitiveKind.Double)
+                if (HfaType.TryComponents(p.DeclaredType, out var incoming))
+                {
+                    for (var lane = 0; lane < incoming.Length; lane++)
+                    {
+                        if (nsrn >= 8)
+                            throw new LiftException("More than eight floating-point parameters: stack-passed arguments are not lifted.");
+                        st.V[nsrn++] = new Slot { Value = new FieldExpr(expr, incoming[lane], PrimitiveKind.Single), Width = 32 };
+                    }
+                }
+                else if (p.Type is PrimitiveKind.Single or PrimitiveKind.Double)
                 {
                     if (nsrn >= 8)
                         throw new LiftException("More than eight floating-point parameters: stack-passed arguments are not lifted.");
@@ -428,6 +533,8 @@ public static class StructuredLifter
                 if (++_emitted > _blocks.Count * 8 + 64)
                     throw new LiftException("Structuring would duplicate too much shared code; this control-flow graph is not structured.");
                 var block = frame.Block;
+                foreach (var init in block.ClassInits)
+                    frame.Stmts.Add(new ClassInitStmt(init.Display) { Addresses = [block.Start] });
                 foreach (var op in block.Body)
                     LiftOne(op, frame.State, frame.Stmts);
                 switch (block.Kind)
@@ -448,6 +555,12 @@ public static class StructuredLifter
                         stack.Pop();
                         break;
                     case TermKind.Trap:
+                        if (block.Term is null && frame.Stmts.LastOrDefault() is ThrowStmt)
+                        {
+                            frame.FallsOff = null;
+                            stack.Pop();
+                            break;
+                        }
                         if (block.Term is null)
                             throw new LiftException($"0x{block.Start:X}: the path from this block has no lifted end. " + string.Join(" ", _fn.Issues));
                         throw new LiftException($"0x{block.Term.Address:X}: a trap instruction (BRK/UDF/HLT) is reached; no C# equivalent is invented.");
@@ -609,7 +722,9 @@ public static class StructuredLifter
         {
             CheckFrame(st, op.Address, "tail call");
             var callee = ResolveCallee(op.Target, op.Address, out var chain);
-            var call = BuildCall(callee, op.Target, st, op.Address);
+            var call = BuildCall(callee, op.Target, st, op.Address, stmts);
+            if (call is null)
+                throw new LiftException($"0x{op.Address:X}: tail call to {callee.DeclaringType}.{callee.Name} did not produce a call.");
             if (chain is not null)
                 EvidenceNotes.Add($"0x{op.Address:X}: tail call resolved through thunk chain {chain}.");
             EvidenceNotes.Add($"0x{op.Address:X}: unconditional branch to known method entry 0x{op.Target:X} ({callee.DeclaringType}.{callee.Name}) with the frame restored is a tail call.");
@@ -635,6 +750,14 @@ public static class StructuredLifter
         private void EmitNoReturn(Block block, State st, List<Stmt> stmts)
         {
             var op = block.Term!;
+            if (TryParameterlessException(op.Target, out var exceptionType))
+            {
+                stmts.Add(new ThrowStmt(exceptionType, "the helper builds this exception from its type name and does not return") { Addresses = [op.Address] });
+                EvidenceNotes.Add($"0x{op.Address:X}: call target 0x{op.Target:X} raises {exceptionType}. The type name is a read-only string reached before __cxa_throw, and the call takes no exception object.");
+                return;
+            }
+            if (TryRaise(op, st, stmts))
+                return;
             if (_req.RuntimeHelpers is not null && _req.RuntimeHelpers.TryGetValue(op.Target, out var helper) && helper.Kind == RuntimeHelperKind.RaiseNullReferenceException && RuntimeHelperInference.IsNullCheck(_fn, op.Address))
             {
                 stmts.Add(new ThrowStmt("System.NullReferenceException", helper.Evidence) { Addresses = [op.Address] });
@@ -644,7 +767,7 @@ public static class StructuredLifter
             if (_req.CallTargets is not null && _req.CallTargets.ContainsKey(op.Target))
             {
                 var callee = _req.CallTargets[op.Target];
-                var call = BuildCall(callee, op.Target, st, op.Address);
+                var call = BuildCall(callee, op.Target, st, op.Address, stmts);
                 if (call is CallExpr ce)
                     stmts.Add(new ExpressionStmt(ce) { Addresses = [op.Address] });
                 stmts.Add(new ThrowStmt("System.InvalidOperationException", "unreachable: the managed callee does not return") { Addresses = [op.Address] });
@@ -943,7 +1066,7 @@ public static class StructuredLifter
                     return;
                 case A64Kind.Ldp:
                 case A64Kind.Stp:
-                    LiftPair(op, st);
+                    LiftPair(op, st, stmts);
                     return;
                 case A64Kind.Bl:
                     LiftCall(op, st, stmts);
@@ -1015,6 +1138,53 @@ public static class StructuredLifter
                 case A64Kind.FcvtToSingle:
                     st.V[op.Rd] = new Slot { Value = new CastExpr(ReadFloat(op.Rn, true, st, op.Address), PrimitiveKind.Single), Width = 32 };
                     return;
+                case A64Kind.VectorMov:
+                {
+                    if (st.V[op.Rn] is not { } source)
+                        throw new LiftException($"0x{op.Address:X}: v{op.Rn} has no lifted value to copy.");
+                    st.V[op.Rd] = new Slot { Value = source.Value, Width = source.Width };
+                    return;
+                }
+                case A64Kind.FmovFromGeneral:
+                    st.V[op.Rd] = new Slot { Value = BitsToFloat(op.Rn == 31 ? new ConstExpr(0, op.FloatDouble ? PrimitiveKind.Int64 : PrimitiveKind.Int32) : Read(op.Rn, op.FloatDouble, st, op.Address), op.FloatDouble), Width = op.FloatDouble ? 64 : 32 };
+                    return;
+                case A64Kind.FmovToGeneral:
+                    Write(st, op.Rd, w, FloatToBits(ReadFloat(op.Rn, op.FloatDouble, st, op.Address), op.FloatDouble));
+                    return;
+                case A64Kind.Fsqrt:
+                {
+                    var ft = op.FloatDouble ? PrimitiveKind.Double : PrimitiveKind.Single;
+                    var call = new CallExpr("Sqrt", [ReadFloat(op.Rn, op.FloatDouble, st, op.Address)], ft) { StaticType = op.FloatDouble ? "System.Math" : "System.MathF" };
+                    st.V[op.Rd] = new Slot { Value = call, Width = op.FloatDouble ? 64 : 32 };
+                    return;
+                }
+                case A64Kind.Fmin:
+                case A64Kind.Fmax:
+                case A64Kind.FminNum:
+                case A64Kind.FmaxNum:
+                {
+                    var left = ReadFloat(op.Rn, op.FloatDouble, st, op.Address);
+                    var right = ReadFloat(op.Rm, op.FloatDouble, st, op.Address);
+                    st.V[op.Rd] = new Slot
+                    {
+                        Value = new FloatExtremumExpr(op.Kind is A64Kind.Fmin or A64Kind.FminNum, op.Kind is A64Kind.FminNum or A64Kind.FmaxNum, left, right),
+                        Width = op.FloatDouble ? 64 : 32
+                    };
+                    return;
+                }
+                case A64Kind.SimdScvtf:
+                case A64Kind.SimdUcvtf:
+                {
+                    if (st.V[op.Rn] is not { } lane)
+                        throw new LiftException($"0x{op.Address:X}: v{op.Rn} has no integer bits to convert.");
+                    var src = lane.Value;
+                    if (op.Kind == A64Kind.SimdUcvtf && src.Type is PrimitiveKind.Int32 or PrimitiveKind.Int64)
+                        src = new CastExpr(src, src.Type == PrimitiveKind.Int32 ? PrimitiveKind.UInt32 : PrimitiveKind.UInt64);
+                    var ft = op.FloatDouble ? PrimitiveKind.Double : PrimitiveKind.Single;
+                    st.V[op.Rd] = new Slot { Value = new CastExpr(src, ft), Width = op.FloatDouble ? 64 : 32 };
+                    EvidenceNotes.Add($"0x{op.Address:X}: SIMD {(op.Kind == A64Kind.SimdUcvtf ? "unsigned" : "signed")} convert of the integer bits in v{op.Rn}.");
+                    return;
+                }
                 default:
                     throw new LiftException($"0x{op.Address:X}: instruction 0x{op.Word:X8} ({op.Kind}) is not in the lifted subset.");
             }
@@ -1216,7 +1386,7 @@ public static class StructuredLifter
                 var at = global.Address + (ulong)offset;
                 if (op.Kind == A64Kind.Ldr && op.Size == 8 && !op.SignedLoad && _req.ResolveMetadataSlot?.Invoke(at) is MetadataSlot slot)
                 {
-                    Expr resolved = slot.ValueAtAddress ? new MetadataValueExpr(slot) : new MetadataEntryExpr(slot);
+                    Expr resolved = SlotExpr(slot, slot.ValueAtAddress);
                     Write(st, op.Rt, 64, resolved);
                     EvidenceNotes.Add($"0x{op.Address:X}: address 0x{at:X} is a metadata {slot.Kind} slot ({slot.Display}).");
                     return;
@@ -1231,14 +1401,36 @@ public static class StructuredLifter
             {
                 if (op.Kind == A64Kind.Ldr && offset == 0 && op.Size == 8 && !op.SignedLoad)
                 {
-                    Write(st, op.Rt, 64, new MetadataValueExpr(entry.Slot));
+                    Write(st, op.Rt, 64, SlotExpr(entry.Slot, true));
                     EvidenceNotes.Add($"0x{op.Address:X}: load of resolved metadata {entry.Slot.Kind} {entry.Slot.Display}.");
                     return;
                 }
                 throw new LiftException($"0x{op.Address:X}: metadata entry {entry.Slot.Display} is not consumed as the resolved value. No field was invented.");
             }
             if (baseExpr is MetadataValueExpr usage)
+            {
+                if (usage.Slot.Kind == MetadataSlotKind.Type
+                    && Il2CppClassLayout.TryGet(_req.MetadataVersion, out var staticFields, out _)
+                    && op.Kind == A64Kind.Ldr && op.Size == 8 && !op.SignedLoad && offset == staticFields)
+                {
+                    if (usage.Slot.DefinitionIndex is null)
+                        throw new LiftException($"0x{op.Address:X}: static fields of {usage.Slot.Display} are unresolved because the type slot has no definition index.");
+                    Write(st, op.Rt, 64, new ClassStaticBaseExpr(usage.Slot));
+                    EvidenceNotes.Add($"0x{op.Address:X}: load of Il2CppClass.static_fields at +0x{staticFields:X} for {usage.Slot.Display}.");
+                    return;
+                }
                 throw new LiftException($"0x{op.Address:X}: resolved metadata {usage.Slot.Kind} {usage.Slot.Display} is not a lifted object. No pointer was invented.");
+            }
+            if (baseExpr is ClassStaticBaseExpr staticBase)
+            {
+                var staticFieldsOfType = staticBase.Slot.DefinitionIndex is int staticId && _req.TypeFieldsById is not null && _req.TypeFieldsById.TryGetValue(staticId, out var listed) ? listed : [];
+                var staticField = staticFieldsOfType.FirstOrDefault(f => f.IsStatic && f.StaticOffset == offset);
+                if (staticField is null)
+                    throw new LiftException($"0x{op.Address:X}: no static field of {staticBase.Slot.Display} at static offset 0x{offset:X}. No field was invented.");
+                AccessField(op, null, staticField, st, stmts);
+                EvidenceNotes.Add($"0x{op.Address:X}: static field {staticField.OwnerType}::{staticField.Name} at static offset 0x{offset:X}.");
+                return;
+            }
             if (baseExpr.Type != PrimitiveKind.Reference)
                 throw new LiftException($"0x{op.Address:X}: memory access through a non-reference value is not lifted. No pointer was invented.");
             if (offset == 0)
@@ -1325,14 +1517,39 @@ public static class StructuredLifter
                 throw new LiftException($"0x{op.Address:X}: a {op.Size}-byte access does not match field {field.Name} ({field.Type}, {size} bytes).");
             var isFloat = field.Type is PrimitiveKind.Single or PrimitiveKind.Double;
             if (isFloat != op.Vector)
+            {
+                if (isFloat && !op.Vector && op.Kind == A64Kind.Str)
+                {
+                    var bits = BitPattern(op.Rt, size, st, op.Address);
+                    var value = ReinterpretFloat(bits, field.Type == PrimitiveKind.Double, op.Address);
+                    stmts.Add(new StoreFieldStmt(instance, field.Name, value) { Addresses = [op.Address], StaticOwner = instance is null ? field.OwnerType : null });
+                    EvidenceNotes.Add($"0x{op.Address:X}: a {size * 8}-bit general-register store into {field.Name} is the IEEE bit pattern, not a numeric cast.");
+                    return;
+                }
+                if (!isFloat && op.Vector && op.Kind == A64Kind.Ldr && field.Type is PrimitiveKind.Int32 or PrimitiveKind.UInt32 or PrimitiveKind.Int64 or PrimitiveKind.UInt64)
+                {
+                    var integerBits = new FieldExpr(instance, field.Name, field.Type) { RefType = field.DeclaredType, RefTypeId = field.DeclaredTypeId, StaticType = instance is null ? field.OwnerType : null };
+                    var integerTemp = NewTemp(integerBits, op.Address, stmts);
+                    st.V[op.Rt] = new Slot { Value = integerTemp, Width = size * 8 };
+                    EvidenceNotes.Add($"0x{op.Address:X}: {field.Name} was loaded through an FP register as integer bits.");
+                    return;
+                }
                 throw new LiftException($"0x{op.Address:X}: register class does not match field {field.Name} ({field.Type}).");
+            }
             if (op.Kind == A64Kind.Str)
             {
                 Expr value;
                 if (op.Vector)
                     value = ReadFloat(op.Rt, field.Type == PrimitiveKind.Double, st, op.Address);
                 else if (op.Rt == 31)
-                    value = field.Type switch { PrimitiveKind.Reference => new NullExpr(), PrimitiveKind.Boolean => new ConstExpr(0, PrimitiveKind.Boolean), _ => new ConstExpr(0, field.Type) };
+                    value = field.Type switch
+                    {
+                        PrimitiveKind.Reference => new NullExpr(),
+                        PrimitiveKind.Boolean => new ConstExpr(0, PrimitiveKind.Boolean),
+                        PrimitiveKind.Single => new FloatConstExpr(0, PrimitiveKind.Single),
+                        PrimitiveKind.Double => new FloatConstExpr(0, PrimitiveKind.Double),
+                        _ => new ConstExpr(0, field.Type)
+                    };
                 else
                 {
                     var raw = Read(op.Rt, size == 8, st, op.Address);
@@ -1345,11 +1562,18 @@ public static class StructuredLifter
                         _ => Coerce(raw, field.Type)
                     };
                 }
-                stmts.Add(new StoreFieldStmt(instance, field.Name, value) { Addresses = [op.Address] });
+                stmts.Add(new StoreFieldStmt(instance, field.Name, value) { Addresses = [op.Address], StaticOwner = instance is null ? field.OwnerType : null });
                 return;
             }
-            var load = new FieldExpr(instance, field.Name, field.Type) { RefType = field.Type == PrimitiveKind.Reference ? field.DeclaredType : null, RefTypeId = field.Type == PrimitiveKind.Reference ? field.DeclaredTypeId : null };
+            var load = new FieldExpr(instance, field.Name, field.Type)
+            {
+                RefType = field.Type == PrimitiveKind.Reference ? field.DeclaredType : null,
+                RefTypeId = field.Type == PrimitiveKind.Reference ? field.DeclaredTypeId : null,
+                StaticType = instance is null ? field.OwnerType : null
+            };
             var temp = NewTemp(load, op.Address, stmts);
+            if (instance is null)
+                stmts[^1].StaticOwner = field.OwnerType;
             if (op.Vector)
                 st.V[op.Rt] = new Slot { Value = temp, Width = size * 8 };
             else
@@ -1409,9 +1633,14 @@ public static class StructuredLifter
                 st.X[rt] = new Slot { Value = slot.Value, Width = slot.Width };
         }
 
-        private void LiftPair(A64Op op, State st)
+        private void LiftPair(A64Op op, State st, List<Stmt> stmts)
         {
             var baseExpr = Read(op.Rn, true, st, op.Address, spAllowed: true);
+            if (baseExpr.Type == PrimitiveKind.Reference && op.Index == A64Index.Offset)
+            {
+                LiftObjectPair(op, baseExpr, st, stmts);
+                return;
+            }
             if (baseExpr is not StackAddrExpr sa)
                 throw new LiftException($"0x{op.Address:X}: load/store pair on a non-stack base (a struct copy or two fields at once) is not lifted.");
             var start = sa.Offset + (op.Index == A64Index.Post ? 0 : op.Imm);
@@ -1434,6 +1663,45 @@ public static class StructuredLifter
             }
         }
 
+        private void LiftObjectPair(A64Op op, Expr baseExpr, State st, List<Stmt> stmts)
+        {
+            var fields = FieldsOf(baseExpr);
+            var first = fields.FirstOrDefault(f => !f.IsStatic && f.InstanceOffset == op.Imm);
+            var second = fields.FirstOrDefault(f => !f.IsStatic && f.InstanceOffset == op.Imm + op.Size);
+            if (first is null || second is null)
+                throw new LiftException($"0x{op.Address:X}: load/store pair at 0x{op.Imm:X} does not match two fields {op.Size} bytes apart. No field was invented.");
+            if (SizeOf(first.Type) != op.Size || SizeOf(second.Type) != op.Size)
+                throw new LiftException($"0x{op.Address:X}: load/store pair size {op.Size} does not match {first.Name} and {second.Name}.");
+            var floatPair = first.Type is PrimitiveKind.Single or PrimitiveKind.Double;
+            if (floatPair != op.Vector || first.Type != second.Type)
+                throw new LiftException($"0x{op.Address:X}: load/store pair register class does not match {first.Name} ({first.Type}) and {second.Name} ({second.Type}).");
+            if (op.Kind == A64Kind.Stp)
+            {
+                AccessField(CloneAs(op, A64Kind.Str, op.Rt, op.Imm), baseExpr, first, st, stmts);
+                AccessField(CloneAs(op, A64Kind.Str, op.Rt2, op.Imm + op.Size), baseExpr, second, st, stmts);
+            }
+            else
+            {
+                AccessField(CloneAs(op, A64Kind.Ldr, op.Rt, op.Imm), baseExpr, first, st, stmts);
+                AccessField(CloneAs(op, A64Kind.Ldr, op.Rt2, op.Imm + op.Size), baseExpr, second, st, stmts);
+            }
+            EvidenceNotes.Add($"0x{op.Address:X}: pair access split into {first.Name} at 0x{op.Imm:X} and {second.Name} at 0x{op.Imm + op.Size:X}.");
+        }
+
+        private static A64Op CloneAs(A64Op op, A64Kind kind, int rt, long offset) => new()
+        {
+            Word = op.Word,
+            Address = op.Address,
+            Kind = kind,
+            Is64 = op.Size == 8,
+            Rt = rt,
+            Rn = op.Rn,
+            Size = op.Size,
+            Vector = op.Vector,
+            Imm = offset,
+            Index = A64Index.Offset
+        };
+
         private MethodContract ResolveCallee(ulong target, ulong site, out string? chain)
         {
             chain = null;
@@ -1454,10 +1722,15 @@ public static class StructuredLifter
 
         private void LiftCall(A64Op op, State st, List<Stmt> stmts)
         {
+            if (!(_req.CallTargets?.ContainsKey(op.Target) ?? false) && TryRuntimeThunk(op, st, stmts))
+                return;
+            if (TryRaise(op, st, stmts))
+                return;
             var callee = ResolveCallee(op.Target, op.Address, out var chain);
             if (chain is not null)
                 EvidenceNotes.Add($"0x{op.Address:X}: call resolved through thunk chain {chain}.");
-            var call = BuildCall(callee, op.Target, st, op.Address);
+            var call = BuildCall(callee, op.Target, st, op.Address, stmts);
+            callee = _builtCallee;
             for (var r = 0; r <= 18; r++)
                 st.X[r] = null;
             st.X[30] = new Slot { Value = new OpaqueExpr("clobbered link register"), Width = 64 };
@@ -1466,6 +1739,8 @@ public static class StructuredLifter
             for (var r = 16; r <= 31; r++)
                 st.V[r] = null;
             st.Flags = null;
+            if (call is null)
+                return;
             if (call is CtorInitializerStmt init)
             {
                 stmts.Add(init);
@@ -1475,17 +1750,31 @@ public static class StructuredLifter
             if (callee.ReturnType == PrimitiveKind.Void)
             {
                 stmts.Add(new ExpressionStmt(expr) { Addresses = [op.Address] });
+                if (callee.IsStatic)
+                    stmts[^1].StaticOwner = Qualified(callee.Namespace, callee.DeclaringType);
                 return;
             }
             var temp = NewTemp(expr, op.Address, stmts);
-            if (callee.ReturnType is PrimitiveKind.Single or PrimitiveKind.Double)
+            if (callee.IsStatic)
+                stmts[^1].StaticOwner = Qualified(callee.Namespace, callee.DeclaringType);
+            if (HfaType.TryComponents(callee.DeclaredReturnType, out var lanes))
+            {
+                for (var lane = 0; lane < lanes.Length; lane++)
+                    st.V[lane] = new Slot { Value = new FieldExpr(temp, lanes[lane], PrimitiveKind.Single), Width = 32 };
+                EvidenceNotes.Add($"0x{op.Address:X}: {callee.DeclaredReturnType} is returned in s0-s{lanes.Length - 1} (AAPCS64 HFA).");
+            }
+            else if (callee.ReturnType is PrimitiveKind.Single or PrimitiveKind.Double)
                 st.V[0] = new Slot { Value = temp, Width = callee.ReturnType == PrimitiveKind.Double ? 64 : 32 };
             else
                 st.X[0] = new Slot { Value = temp, Width = WidthOf(callee.ReturnType) };
         }
 
-        private object BuildCall(MethodContract callee, ulong target, State st, ulong site)
+        private object BuildCall(MethodContract callee, ulong target, State st, ulong site, List<Stmt> stmts)
         {
+            callee = SpecializeGeneric(callee, st, site);
+            _builtCallee = callee;
+            if (TryDelegateConstruction(callee, st, site, stmts))
+                return null!;
             if (callee.UnsupportedReason is not null)
                 throw new LiftException($"0x{site:X}: call to {callee.DeclaringType}.{callee.Name} is not lifted: {callee.UnsupportedReason}.");
             if (callee.IsGeneric)
@@ -1503,7 +1792,18 @@ public static class StructuredLifter
             var args = new List<Expr>();
             foreach (var p in callee.Parameters)
             {
-                if (p.Type is PrimitiveKind.Single or PrimitiveKind.Double)
+                if (HfaType.TryComponents(p.DeclaredType, out var lanes))
+                {
+                    var parts = new List<Expr>();
+                    foreach (var _ in lanes)
+                    {
+                        if (nsrn >= 8)
+                            throw new LiftException($"0x{site:X}: stack-passed arguments are not lifted.");
+                        parts.Add(ReadFloat(nsrn++, false, st, site));
+                    }
+                    args.Add(new NewExpr(p.DeclaredType!, parts) { RefType = p.DeclaredType });
+                }
+                else if (p.Type is PrimitiveKind.Single or PrimitiveKind.Double)
                 {
                     if (nsrn >= 8)
                         throw new LiftException($"0x{site:X}: stack-passed arguments are not lifted.");
@@ -1536,6 +1836,16 @@ public static class StructuredLifter
                 EvidenceNotes.Add($"0x{site:X}: call to {calleeType}::.ctor on this inside a constructor is the {(isBase ? "base" : "this")} constructor initializer.");
                 return new CtorInitializerStmt(isBase, args) { Addresses = [site] };
             }
+            if (callee.Name == ".ctor" && callee.Namespace == "System" && callee.DeclaringType == "Object" && args.Count == 0 && receiver is not ThisExpr)
+            {
+                EvidenceNotes.Add($"0x{site:X}: System.Object.ctor on an allocated instance adds no field writes. It was not rewritten as new T().");
+                return null!;
+            }
+            if (callee.Name == ".ctor" && receiver is LocalExpr allocated && TryRewriteAllocation(stmts, allocated.Name, calleeType, callee.DeclaringTypeId, args))
+            {
+                EvidenceNotes.Add($"0x{site:X}: {calleeType} was allocated and then its constructor was called on that object. The pair is new {calleeType}(...).");
+                return null!;
+            }
             if (callee.Name is ".ctor" or ".cctor")
                 throw new LiftException($"0x{site:X}: a direct constructor call outside an object-creation pattern is not lifted.");
             var baseCall = receiver is ThisExpr && (callee.IsVirtual || callee.IsAbstract) && !sameType;
@@ -1548,7 +1858,391 @@ public static class StructuredLifter
                 Target = target,
                 BaseCall = baseCall,
                 RefType = callee.ReturnType == PrimitiveKind.Reference ? callee.DeclaredReturnType : null,
-                RefTypeId = callee.ReturnType == PrimitiveKind.Reference ? callee.DeclaredReturnTypeId : null
+                RefTypeId = callee.ReturnType == PrimitiveKind.Reference ? callee.DeclaredReturnTypeId : null,
+                TypeArguments = _typeArguments
+            };
+        }
+
+        private string? _typeArguments;
+        private MethodContract _builtCallee = null!;
+
+        private MethodContract SpecializeGeneric(MethodContract callee, State st, ulong site)
+        {
+            _typeArguments = null;
+            MetadataValueExpr? slot = null;
+            for (var register = 0; register <= 7; register++)
+            {
+                if (st.X[register]?.Value is MetadataValueExpr { Slot.Kind: MetadataSlotKind.Method } value
+                    && value.Slot.Display.Contains(callee.Name, StringComparison.Ordinal))
+                    slot = value;
+            }
+            if (slot?.Slot.GenericArguments is not { Count: > 0 } arguments)
+                return callee;
+            if (callee.UnsupportedReason is not null && !callee.UnsupportedReason.StartsWith("return generic parameter", StringComparison.Ordinal))
+                return callee;
+            if (callee.Parameters.Any(p => p.DeclaredType == "T" || (p.DeclaredType?.Contains("generic parameter", StringComparison.Ordinal) ?? false)))
+                return callee;
+            _typeArguments = string.Join(", ", arguments.Select(CSharpEmitter.FormatDeclaredType));
+            var substituted = arguments.Count == 1 ? arguments[0] : callee.DeclaredReturnType;
+            EvidenceNotes.Add($"0x{site:X}: method slot {slot.Slot.Display} supplies <{_typeArguments}>. The hidden MethodInfo argument is not emitted.");
+            return new MethodContract
+            {
+                Name = callee.Name,
+                Namespace = callee.Namespace,
+                DeclaringType = callee.DeclaringType,
+                DeclaringTypeId = callee.DeclaringTypeId,
+                Assembly = callee.Assembly,
+                IsStatic = callee.IsStatic,
+                IsVirtual = callee.IsVirtual,
+                IsAbstract = callee.IsAbstract,
+                Access = callee.Access,
+                ReturnType = PrimitiveKind.Reference,
+                DeclaredReturnType = substituted,
+                Parameters = callee.Parameters,
+                Fields = callee.Fields
+            };
+        }
+
+        private bool TryDelegateConstruction(MethodContract callee, State st, ulong site, List<Stmt> stmts)
+        {
+            if (callee.Name != ".ctor" || callee.Parameters.Count != 2)
+                return false;
+            if (callee.Parameters[1].DeclaredType != "System.IntPtr" || callee.Parameters[0].Type != PrimitiveKind.Reference)
+                return false;
+            if (st.X[0]?.Value is not LocalExpr local)
+                return false;
+            if (st.X[1]?.Value is not { Type: PrimitiveKind.Reference } target)
+                return false;
+            if (st.X[2]?.Value is not MetadataValueExpr { Slot.Kind: MetadataSlotKind.Method, Slot.MemberName: { Length: > 0 } member })
+                return false;
+            var calleeType = Qualified(callee.Namespace, callee.DeclaringType);
+            if (!TryRewriteAllocation(stmts, local.Name, calleeType, callee.DeclaringTypeId, [new MethodGroupExpr(target, member)]))
+                return false;
+            EvidenceNotes.Add($"0x{site:X}: {calleeType}..ctor(object, System.IntPtr) receives the method {member}. IL2CPP passes the method pointer in the IntPtr; the C# form is new {calleeType}({member}).");
+            return true;
+        }
+
+        private static bool TryRewriteAllocation(List<Stmt> stmts, string local, string typeName, int? typeId, IReadOnlyList<Expr> args)
+        {
+            for (var i = stmts.Count - 1; i >= 0; i--)
+            {
+                if (stmts[i] is not DeclareStmt declare || declare.Local != local)
+                    continue;
+                if (declare.Value is not CastExpr { Value: CallExpr { Name: "GetUninitializedObject" }, RefType: { } allocated })
+                    return false;
+                if (!string.Equals(allocated, typeName, StringComparison.Ordinal))
+                    return false;
+                var created = new NewExpr(typeName, args) { RefType = typeName, RefTypeId = typeId };
+                stmts[i] = new DeclareStmt(declare.Local, declare.Type, created) { Addresses = declare.Addresses, TypeName = declare.TypeName };
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// A parameterless IL2CPP raise helper: a straight path loads the namespace and exception
+        /// name from read-only data and branches to a function that reaches <c>__cxa_throw</c>.
+        /// The caller's registers are not the exception object.
+        /// </summary>
+        private bool TryParameterlessException(ulong target, out string typeName)
+        {
+            typeName = "";
+            if (_req.Space is null)
+                return false;
+            string? ns = null;
+            string? name = null;
+            ulong page1 = 0;
+            ulong page2 = 0;
+            var seen = new HashSet<ulong>();
+            var found = false;
+            var usesArgument = false;
+            Walk(target, 6, 24, true);
+            if (usesArgument)
+                return false;
+            if (!found || ns != "System" || name is null || name.Length == 0 || name.Length > 80 || !name.EndsWith("Exception", StringComparison.Ordinal) || name.Any(ch => ch is < 'A' or > 'Z' && ch is < 'a' or > 'z'))
+                return false;
+            typeName = "System." + name;
+            return true;
+
+            void Walk(ulong address, int depth, int steps, bool entry)
+            {
+                if (found || usesArgument || depth < 0 || !seen.Add(address))
+                    return;
+                for (var i = 0; i < steps && !found && !usesArgument; i++)
+                {
+                    var word = _req.Space?.ReadWord(address);
+                    if (word is null)
+                        return;
+                    var op = A64Decoder.Decode(word.Value, address);
+                    if (entry && ReadsIncomingX0(op))
+                    {
+                        usesArgument = true;
+                        return;
+                    }
+                    if (op.Kind == A64Kind.Adrp && op.Rd == 1)
+                        page1 = op.Target;
+                    else if (op.Kind == A64Kind.Adrp && op.Rd == 2)
+                        page2 = op.Target;
+                    else if (op.Kind == A64Kind.Add && op.HasImm && op.Rd == op.Rn && op.Rd == 1 && page1 != 0 && ns is null)
+                        ns = ReadCString(page1 + (ulong)op.Imm);
+                    else if (op.Kind == A64Kind.Add && op.HasImm && op.Rd == op.Rn && op.Rd == 2 && page2 != 0 && name is null)
+                        name = ReadCString(page2 + (ulong)op.Imm);
+                    if (op.Kind is A64Kind.B or A64Kind.Bl && ns == "System" && name is not null && name.EndsWith("Exception", StringComparison.Ordinal) && ReachesCxaThrow(op.Target))
+                    {
+                        found = true;
+                        return;
+                    }
+                    if (op.Kind == A64Kind.B)
+                    {
+                        Walk(op.Target, depth - 1, steps, false);
+                        return;
+                    }
+                    if (op.Kind == A64Kind.Bl)
+                    {
+                        var savedPage1 = page1;
+                        var savedPage2 = page2;
+                        Walk(op.Target, depth - 1, steps, false);
+                        if (found || usesArgument)
+                            return;
+                        page1 = savedPage1;
+                        page2 = savedPage2;
+                        address += 4;
+                        continue;
+                    }
+                    if (op.IsConditionalBranch || op.Kind is A64Kind.Ret or A64Kind.Trap)
+                        return;
+                    address += 4;
+                }
+            }
+        }
+
+        private static bool ReadsIncomingX0(A64Op op)
+        {
+            if (op.Kind is A64Kind.Ldr or A64Kind.Ldp or A64Kind.Str or A64Kind.Stp && op.Rn == 0)
+                return true;
+            if (op.Kind is A64Kind.Str or A64Kind.Stp && (op.Rt == 0 || op.Kind == A64Kind.Stp && op.Rt2 == 0))
+                return true;
+            if (op.Kind is A64Kind.Add or A64Kind.Sub && (op.Rn == 0 || !op.HasImm && op.Rm == 0))
+                return true;
+            if (op.Kind is A64Kind.Orr or A64Kind.And or A64Kind.Eor && (op.Rm == 0 || op.Rn == 0))
+                return true;
+            return op.Kind is A64Kind.Cbz or A64Kind.Cbnz or A64Kind.Tbz or A64Kind.Tbnz && op.Rd == 0;
+        }
+
+        private string? ReadCString(ulong address)
+        {
+            if (_req.Space is null)
+                return null;
+            var chars = new List<byte>(64);
+            for (var i = 0; i < 80; i++)
+            {
+                var b = _req.Space.ReadMapped(address + (ulong)i);
+                if (b is null)
+                    return null;
+                if (b.Value == 0)
+                    return chars.Count == 0 ? null : System.Text.Encoding.ASCII.GetString(chars.ToArray());
+                if (b.Value is < 32 or > 126)
+                    return null;
+                chars.Add(b.Value);
+            }
+            return null;
+        }
+
+        private bool TryRaise(A64Op op, State st, List<Stmt> stmts)
+        {
+            if (_req.CallTargets?.ContainsKey(op.Target) == true || !ReachesCxaThrow(op.Target))
+                return false;
+            var value = st.X[0]?.Value;
+            if (value is null || value.Type != PrimitiveKind.Reference || string.IsNullOrWhiteSpace(value.RefType))
+                return false;
+            stmts.Add(new ThrowStmt(value.RefType, "helper reaches __cxa_throw") { Addresses = [op.Address], Value = value });
+            EvidenceNotes.Add($"0x{op.Address:X}: call target 0x{op.Target:X} reaches __cxa_throw with {value.RefType} in x0. The call is throw of that object. The MethodInfo argument is the IL2CPP exception frame and is not emitted.");
+            ClobberCall(st);
+            return true;
+        }
+
+        private bool ReachesCxaThrow(ulong target)
+        {
+            if (_req.CodeSymbols is null || _req.Space is null)
+                return false;
+            return Walk(target, 2, 24);
+
+            bool Walk(ulong address, int depth, int steps)
+            {
+                for (var i = 0; i < steps; i++)
+                {
+                    if (_req.CodeSymbols.TryGetValue(address, out var here) && here == "__cxa_throw")
+                        return true;
+                    var word = _req.Space.ReadWord(address);
+                    if (word is null)
+                        return false;
+                    var decoded = A64Decoder.Decode(word.Value, address);
+                    if (decoded.Kind is A64Kind.Bl or A64Kind.B)
+                    {
+                        if (_req.CodeSymbols.TryGetValue(decoded.Target, out var called) && called == "__cxa_throw")
+                            return true;
+                        if (depth > 0 && Walk(decoded.Target, depth - 1, steps))
+                            return true;
+                        if (decoded.Kind == A64Kind.B)
+                            return false;
+                    }
+                    else if (decoded.Kind is A64Kind.Ret or A64Kind.Trap || decoded.IsConditionalBranch)
+                        return false;
+                    address += 4;
+                }
+                return false;
+            }
+        }
+
+        private bool TryRuntimeThunk(A64Op op, State st, List<Stmt> stmts)
+        {
+            if (_req.Space?.ReadWord(op.Target) is not uint word || A64Decoder.Decode(word, op.Target).Kind != A64Kind.B)
+                return false;
+            var x0 = st.X[0]?.Value;
+            if (x0 is MetadataValueExpr { Slot.Kind: MetadataSlotKind.Type } boxed && st.X[1]?.Value is StackAddrExpr stack)
+            {
+                if (!st.Stack.TryGetValue(stack.Offset, out var stored))
+                    throw new LiftException($"0x{op.Address:X}: box of {boxed.Slot.Display} reads a stack slot this method did not write.");
+                var temp = NewTemp(new BoxExpr(stored.Value, boxed.Slot.Display), op.Address, stmts);
+                ClobberCall(st);
+                st.X[0] = new Slot { Value = temp, Width = 64 };
+                EvidenceNotes.Add($"0x{op.Address:X}: box({boxed.Slot.Display}) of the value at sp+0x{stack.Offset:X}. The helper at 0x{op.Target:X} is one branch.");
+                return true;
+            }
+            if (x0 is MetadataEntryExpr entry && OtherArgsEmpty(st))
+            {
+                var resolved = SlotExpr(entry.Slot, true);
+                ClobberCall(st);
+                st.X[0] = new Slot { Value = resolved, Width = 64 };
+                EvidenceNotes.Add($"0x{op.Address:X}: metadata-init helper at 0x{op.Target:X} (one branch) returns the resolved {entry.Slot.Kind} {entry.Slot.Display}.");
+                return true;
+            }
+            if (x0 is MetadataValueExpr { Slot.Kind: MetadataSlotKind.Type } type && OtherArgsEmpty(st))
+            {
+                if (UsesResult(op.Address))
+                {
+                    var allocated = new CastExpr(
+                        new CallExpr("GetUninitializedObject", [new TypeOfExpr(type.Slot.Display)], PrimitiveKind.Reference)
+                        { StaticType = "System.Runtime.CompilerServices.RuntimeHelpers" },
+                        PrimitiveKind.Reference)
+                    { RefType = type.Slot.Display, RefTypeId = type.Slot.DefinitionIndex };
+                    var temp = NewTemp(allocated, op.Address, stmts);
+                    ClobberCall(st);
+                    st.X[0] = new Slot { Value = temp, Width = 64 };
+                    EvidenceNotes.Add($"0x{op.Address:X}: allocation of {type.Slot.Display}. The helper at 0x{op.Target:X} is one branch. new {type.Slot.Display}() was not emitted; the following constructor sequence is not yet proven equal to that type's constructor.");
+                    return true;
+                }
+                stmts.Add(new ClassInitStmt(type.Slot.Display) { Addresses = [op.Address] });
+                ClobberCall(st);
+                EvidenceNotes.Add($"0x{op.Address:X}: class-init helper at 0x{op.Target:X} for {type.Slot.Display}. Its result is unused.");
+                return true;
+            }
+            return false;
+        }
+
+        private static bool OtherArgsEmpty(State st)
+        {
+            for (var register = 1; register <= 7; register++)
+            {
+                if (st.X[register]?.Value is null or OpaqueExpr or ConstExpr { Value: 0 })
+                    continue;
+                return false;
+            }
+            return true;
+        }
+
+        private bool UsesResult(ulong address)
+        {
+            for (var at = address + 4; _fn.Instructions.TryGetValue(at, out var next); at += 4)
+            {
+                if (next.Kind == A64Kind.Ret)
+                    return _req.Contract.ReturnType != PrimitiveKind.Void;
+                if (UsesGpr(next, 0))
+                    return true;
+                if (A64Effects.WritesGpr(next, 0) || next.Kind is A64Kind.B or A64Kind.BCond or A64Kind.Cbz or A64Kind.Cbnz or A64Kind.Tbz or A64Kind.Tbnz)
+                    return false;
+            }
+            return false;
+        }
+
+        private static bool UsesGpr(A64Op op, int register)
+        {
+            if (op.Kind is A64Kind.Ldr or A64Kind.Str or A64Kind.Ldp or A64Kind.Stp)
+            {
+                if (op.Rn == register)
+                    return true;
+                if (op.Kind is A64Kind.Str or A64Kind.Stp && op.Rt == register)
+                    return true;
+                if (op.Kind == A64Kind.Stp && op.Rt2 == register)
+                    return true;
+            }
+            if (op.Kind is A64Kind.Bl or A64Kind.Blr)
+                return register <= 7;
+            if (!op.HasImm && op.Rm == register && op.Kind is not (A64Kind.Str or A64Kind.Stp or A64Kind.Ldr or A64Kind.Ldp))
+                return true;
+            if (op.Rn == register && op.Kind is not (A64Kind.Ldr or A64Kind.Str or A64Kind.Ldp or A64Kind.Stp) && !(op.Kind == A64Kind.Orr && op.Rn == 31))
+                return true;
+            return false;
+        }
+
+        private static void ClobberCall(State st)
+        {
+            for (var register = 0; register <= 18; register++)
+                st.X[register] = null;
+            st.X[30] = new Slot { Value = new OpaqueExpr("clobbered link register"), Width = 64 };
+            for (var register = 0; register <= 7; register++)
+                st.V[register] = null;
+            for (var register = 16; register <= 31; register++)
+                st.V[register] = null;
+            st.Flags = null;
+        }
+
+        private static Expr SlotExpr(MetadataSlot slot, bool resolvedValue)
+        {
+            if (!resolvedValue)
+                return new MetadataEntryExpr(slot);
+            if (slot.Kind == MetadataSlotKind.StringLiteral && slot.LiteralText is not null)
+                return new StringConstExpr(slot.LiteralText);
+            return new MetadataValueExpr(slot);
+        }
+
+        private Expr BitPattern(int rt, int size, State st, ulong address) =>
+            rt == 31
+                ? new ConstExpr(0, size == 8 ? PrimitiveKind.Int64 : PrimitiveKind.Int32)
+                : Read(rt, size == 8, st, address);
+
+        private static Expr ReinterpretFloat(Expr bits, bool isDouble, ulong address)
+        {
+            _ = address;
+            return BitsToFloat(bits, isDouble);
+        }
+
+        private static Expr BitsToFloat(Expr bits, bool isDouble)
+        {
+            if (bits is ConstExpr constant)
+            {
+                if (isDouble)
+                    return new FloatConstExpr(BitConverter.Int64BitsToDouble(constant.Value), PrimitiveKind.Double);
+                return new FloatConstExpr(BitConverter.Int32BitsToSingle(unchecked((int)(uint)constant.Value)), PrimitiveKind.Single);
+            }
+            var arg = isDouble ? Coerce(bits, PrimitiveKind.Int64) : Coerce(bits, PrimitiveKind.Int32);
+            return new CallExpr(isDouble ? "Int64BitsToDouble" : "Int32BitsToSingle", [arg], isDouble ? PrimitiveKind.Double : PrimitiveKind.Single)
+            {
+                StaticType = "System.BitConverter"
+            };
+        }
+
+        private static Expr FloatToBits(Expr value, bool isDouble)
+        {
+            if (value is FloatConstExpr constant)
+            {
+                if (isDouble)
+                    return new ConstExpr(BitConverter.DoubleToInt64Bits(constant.Value), PrimitiveKind.Int64);
+                return new ConstExpr(unchecked((uint)BitConverter.SingleToInt32Bits((float)constant.Value)), PrimitiveKind.Int32);
+            }
+            return new CallExpr(isDouble ? "DoubleToInt64Bits" : "SingleToInt32Bits", [value], isDouble ? PrimitiveKind.Int64 : PrimitiveKind.Int32)
+            {
+                StaticType = "System.BitConverter"
             };
         }
 

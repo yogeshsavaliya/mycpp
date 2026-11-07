@@ -114,6 +114,7 @@ public sealed class TypeTables
                 };
                 AddField(type, contract, fields, seen, overlapped);
             }
+            AddStaticFields(type, display, fields, notes, id, byId);
         }
         if (skipped.TryGetValue(id, out var skips) && skips.Count > 0)
             Note(notes, id, "Fields at these offsets are outside the lifter subset: " + string.Join("; ", skips) + ".");
@@ -164,6 +165,47 @@ public sealed class TypeTables
         }
         seen.Add(offset, field);
         fields.Add(field);
+    }
+
+    private static void AddStaticFields(EngineTypeInfo type, string display, List<FieldContract> fields, Dictionary<int, string> notes, int id, Dictionary<int, EngineTypeInfo> byId)
+    {
+        var seen = new Dictionary<int, FieldContract>();
+        foreach (var field in type.Fields)
+        {
+            if (!field.IsStatic || field.IsLiteral)
+                continue;
+            if (field.Offset is null or < 0)
+            {
+                if (field.Offset is < 0)
+                    Note(notes, id, "Thread-static field " + display + "::" + field.Name + " has no static-block offset and is not resolved.");
+                continue;
+            }
+            if (!Liftable(field, byId, out var kind))
+            {
+                Note(notes, id, "Static field " + display + "::" + field.Name + " (" + field.Type + ") is outside the lifter subset.");
+                continue;
+            }
+            var contract = new FieldContract
+            {
+                Name = field.Name,
+                Type = kind,
+                DeclaredType = field.Type,
+                DeclaredTypeId = DefinitionId(field.TypeReference),
+                Access = field.Access,
+                IsStatic = true,
+                StaticOffset = field.Offset,
+                OwnerType = display,
+                OwnerTypeId = type.MetadataIndex
+            };
+            if (seen.TryGetValue(field.Offset.Value, out var existing))
+            {
+                throw new InvalidOperationException(
+                    "Two static fields share static offset 0x" + field.Offset.Value.ToString("X") + " on " + Describe(type) +
+                    ". First: " + existing.Name + ". Second: " + field.Name + ".");
+            }
+            seen.Add(field.Offset.Value, contract);
+            fields.Add(contract);
+        }
     }
 
     private static int? DefinitionId(TypeRef? type) =>

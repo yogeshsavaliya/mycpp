@@ -1,0 +1,33 @@
+status: recoveredUnvalidated
+featureComplete: True
+address: 0xD6E620
+name: CameraController::RegisterNewPlayer
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6E63C: elided IL2CPP lazy runtime-metadata init. The flag byte, the bit-0 test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.
+Evidence: 0xD6E67C: elided IL2CPP lazy runtime-metadata init. The flag byte, the whole-byte test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.
+Evidence: 0xD6E65C: runtime class init of SnakeWarzOnline.GameController. The cctor_finished word at klass+0xE0 and the following init call were replaced with an explicit class initializer. No field was invented for the word.
+Evidence: 0xD6E698: runtime class init of SnakeWarzOnline.GameController. The cctor_finished word at klass+0xE0 and the following init call were replaced with an explicit class initializer. No field was invented for the word.
+Evidence: 0xD6E634: address 0x1C7AAA8 is a metadata Type slot (SnakeWarzOnline.GameController).
+Evidence: 0xD6E654: load of resolved metadata Type SnakeWarzOnline.GameController.
+Evidence: 0xD6E668: load of Il2CppClass.static_fields at +0xB8 for SnakeWarzOnline.GameController.
+Evidence: 0xD6E66C: static field SnakeWarzOnline.GameController::instance at static offset 0x0.
+Evidence: 0xD6E6BC: call target 0xCA5EF0 raises System.NullReferenceException. The type name is a read-only string reached before __cxa_throw, and the call takes no exception object.
+Evidence: 0xD6E6A4: load of Il2CppClass.static_fields at +0xB8 for SnakeWarzOnline.GameController.
+Evidence: 0xD6E6A8: static field SnakeWarzOnline.GameController::mainPlayerObject at static offset 0x88.
+Evidence: The class initializer of SnakeWarzOnline.GameController runs as part of the next static member access, so the explicit check was not emitted again.
+
+csharp:
+unchecked
+{
+    if ((SnakeWarzOnline.GameController.instance == null))
+    {
+        throw new System.NullReferenceException();
+    }
+    else
+    {
+        this.targetToFollow = SnakeWarzOnline.GameController.mainPlayerObject;
+        return;
+    }
+}

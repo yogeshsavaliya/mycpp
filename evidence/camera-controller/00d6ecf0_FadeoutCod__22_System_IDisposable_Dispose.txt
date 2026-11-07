@@ -1,0 +1,13 @@
+status: recoveredUnvalidated
+featureComplete: True
+address: 0xD6ECF0
+name: <FadeoutCo>d__22::System.IDisposable.Dispose
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+
+csharp:
+unchecked
+{
+    return;
+}

@@ -26,6 +26,8 @@ public sealed class EngineMethod
     public int DeclaringTypeId { get; init; } = -1;
     public TypeRef? ReturnTypeRef { get; init; }
     public IReadOnlyList<TypeRef> ParameterTypeRefs { get; init; } = [];
+    /// <summary>Interface.Method when a private virtual final method's vtable slot names an interface method.</summary>
+    public string? ExplicitInterfaceName { get; init; }
 }
 
 public sealed class EngineTypeInfo
@@ -45,6 +47,7 @@ public sealed class EngineTypeInfo
     public bool IsExplicitLayout { get; init; }
     public IReadOnlyList<EngineFieldInfo> Fields { get; init; } = [];
     public IReadOnlyList<string> Events { get; init; } = [];
+    public IReadOnlyList<TypeRef> Interfaces { get; init; } = [];
 }
 
 public sealed class EngineFieldInfo
@@ -150,6 +153,16 @@ public static class Cpp2IlSession
                             if (!string.IsNullOrWhiteSpace(ev.Name))
                                 events.Add(ev.Name);
                         }
+                        var interfaces = new List<TypeRef>();
+                        try
+                        {
+                            foreach (var implemented in type.Interfaces ?? [])
+                                interfaces.Add(ToRef(implemented, false));
+                        }
+                        catch (Exception)
+                        {
+                            interfaces.Clear();
+                        }
                         types.Add(new EngineTypeInfo
                         {
                             MetadataIndex = type.TypeIndex.IsNonNull ? type.TypeIndex.Value : -1,
@@ -166,7 +179,8 @@ public static class Cpp2IlSession
                             IsOpenGeneric = openGeneric,
                             IsExplicitLayout = (type.Attributes & System.Reflection.TypeAttributes.ExplicitLayout) != 0,
                             Fields = fields,
-                            Events = events
+                            Events = events,
+                            Interfaces = interfaces
                         });
                         foreach (var method in type.Methods ?? [])
                         {
@@ -207,6 +221,7 @@ public static class Cpp2IlSession
                             methods.Add(new EngineMethod
                             {
                                 Name = method.Name ?? "",
+                                ExplicitInterfaceName = ExplicitInterfaceName(type, method),
                                 DeclaringType = type.Name ?? "",
                                 Namespace = type.Namespace ?? "",
                                 Image = image.Name ?? "",
@@ -262,6 +277,84 @@ public static class Cpp2IlSession
         LibCpp2IlMain.Binary = null;
         LibCpp2IlMain.TheMetadata = null;
         LibCpp2IlMain.Reset();
+    }
+
+    private static string? ExplicitInterfaceName(LibCpp2IL.Metadata.Il2CppTypeDefinition type, LibCpp2IL.Metadata.Il2CppMethodDefinition method)
+    {
+        if (string.IsNullOrWhiteSpace(method.Name) || method.Name.Contains('.', StringComparison.Ordinal))
+            return null;
+        var flags = method.Attributes;
+        var access = flags & System.Reflection.MethodAttributes.MemberAccessMask;
+        if (access != System.Reflection.MethodAttributes.Private)
+            return null;
+        if ((flags & System.Reflection.MethodAttributes.Virtual) == 0 || (flags & System.Reflection.MethodAttributes.Final) == 0 || (flags & System.Reflection.MethodAttributes.Abstract) != 0)
+            return null;
+        MetadataUsage?[]? table;
+        try
+        {
+            table = type.VTable;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+        if (table is null || method.slot >= table.Length)
+            return null;
+        if (table[method.slot]?.Value is not LibCpp2IL.Metadata.Il2CppMethodDefinition implemented || string.IsNullOrWhiteSpace(implemented.Name))
+            return null;
+        LibCpp2IL.Metadata.Il2CppTypeDefinition? owner;
+        try
+        {
+            owner = implemented.DeclaringType;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+        if (owner is null)
+            return null;
+        bool isInterface;
+        try
+        {
+            isInterface = owner.IsInterface;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+        if (isInterface && !string.IsNullOrWhiteSpace(owner.FullName))
+            return owner.FullName + "." + implemented.Name;
+        // The slot names the implementing method. The interface comes from the vtable range that contains it.
+        try
+        {
+            var offsets = type.InterfaceOffsets;
+            if (offsets is null || offsets.Length == 0 || method.slot < 0)
+                return null;
+            var ordered = offsets.OrderBy(item => item.offset).ToArray();
+            for (var i = 0; i < ordered.Length; i++)
+            {
+                var start = ordered[i].offset;
+                var end = i + 1 < ordered.Length ? ordered[i + 1].offset : table.Length;
+                if (method.slot < start || method.slot >= end)
+                    continue;
+                var data = ordered[i].Type;
+                var definition = data?.baseType;
+                if (data is null || data.isGenericType || definition is null || !definition.IsInterface || definition.Methods is null)
+                    return null;
+                var index = method.slot - start;
+                if (index >= definition.Methods.Length)
+                    return null;
+                var ifaceMethod = definition.Methods[index];
+                if (!string.Equals(ifaceMethod.Name, method.Name, StringComparison.Ordinal) || string.IsNullOrWhiteSpace(definition.FullName))
+                    return null;
+                return definition.FullName + "." + ifaceMethod.Name;
+            }
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+        return null;
     }
 
     private static int? IndexOf(LibCpp2IL.Metadata.Il2CppTypeDefinition? type) =>

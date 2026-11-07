@@ -66,7 +66,13 @@ public sealed record UnaryExpr(string Op, Expr Value, PrimitiveKind Type) : Expr
 
 public sealed record FieldExpr(Expr? Instance, string Name, PrimitiveKind Type) : Expr(Type)
 {
-    public override string Describe() => Instance is null ? Name : $"{Instance.Describe()}.{Name}";
+    public string? StaticType { get; init; }
+    public override string Describe() => Instance is null ? (StaticType is null ? Name : StaticType + "." + Name) : $"{Instance.Describe()}.{Name}";
+}
+
+public sealed record TypeOfExpr(string TypeName) : Expr(PrimitiveKind.Reference)
+{
+    public override string Describe() => "typeof(" + TypeName + ")";
 }
 
 public sealed record CallExpr(string Name, IReadOnlyList<Expr> Args, PrimitiveKind Type) : Expr(Type)
@@ -76,6 +82,8 @@ public sealed record CallExpr(string Name, IReadOnlyList<Expr> Args, PrimitiveKi
     public ulong? Target { get; init; }
     /// <summary>A direct call on this to a virtual or abstract method declared on another type.</summary>
     public bool BaseCall { get; init; }
+    /// <summary>Explicit type arguments, already formatted as C# type names separated by commas.</summary>
+    public string? TypeArguments { get; init; }
     public override string Describe() => (Receiver is null ? StaticType is null ? "" : StaticType + "." : Receiver.Describe() + ".") + $"{Name}({string.Join(", ", Args.Select(a => a.Describe()))})";
 }
 
@@ -96,7 +104,7 @@ public enum MetadataSlotKind { Type, Method, Field, StringLiteral }
 /// the loaded address is a pointer to the encoded token (the v29 layout) and a following load of
 /// that pointer yields the resolved entity.
 /// </summary>
-public sealed record MetadataSlot(MetadataSlotKind Kind, string Display, bool ValueAtAddress);
+public sealed record MetadataSlot(MetadataSlotKind Kind, string Display, bool ValueAtAddress, int? DefinitionIndex = null, string? LiteralText = null, IReadOnlyList<string>? GenericArguments = null, string? MemberName = null);
 
 public sealed record MetadataEntryExpr(MetadataSlot Slot) : Expr(PrimitiveKind.Reference)
 {
@@ -108,9 +116,44 @@ public sealed record MetadataValueExpr(MetadataSlot Slot) : Expr(PrimitiveKind.R
     public override string Describe() => Slot.Kind + " " + Slot.Display;
 }
 
+public sealed record StringConstExpr(string Value) : Expr(PrimitiveKind.Reference)
+{
+    public override string Describe() => "\"" + Value + "\"";
+}
+
+/// <summary>The static-field block of one Il2CppClass (the pointer at static_fields).</summary>
+public sealed record ClassStaticBaseExpr(MetadataSlot Slot) : Expr(PrimitiveKind.Reference)
+{
+    public override string Describe() => "static fields of " + Slot.Display;
+}
+
+/// <summary>IEEE min/max. Numbers is false for FMIN/FMAX (NaN propagates) and true for FMINNM/FMAXNM.</summary>
+public sealed record FloatExtremumExpr(bool Minimum, bool Numbers, Expr Left, Expr Right) : Expr(Left.Type)
+{
+    public override string Describe() => (Minimum ? "min" : "max") + (Numbers ? "Num" : "") + "(" + Left.Describe() + ", " + Right.Describe() + ")";
+}
+
+public sealed record NewExpr(string TypeName, IReadOnlyList<Expr> Args) : Expr(PrimitiveKind.Reference)
+{
+    public override string Describe() => "new " + TypeName + "(" + string.Join(", ", Args.Select(a => a.Describe())) + ")";
+}
+
+/// <summary>A method group used as a delegate constructor argument. It is not a call.</summary>
+public sealed record MethodGroupExpr(Expr? Instance, string Method) : Expr(PrimitiveKind.Reference)
+{
+    public override string Describe() => Instance is null ? Method : Instance.Describe() + "." + Method;
+}
+
+public sealed record BoxExpr(Expr Value, string TypeName) : Expr(PrimitiveKind.Reference)
+{
+    public override string Describe() => "(object)(" + TypeName + ")" + Value.Describe();
+}
+
 public abstract record Stmt
 {
     public required IReadOnlyList<ulong> Addresses { get; init; }
+    /// <summary>Set when the statement is a static member access of this type. Used to elide a preceding class init.</summary>
+    public string? StaticOwner { get; set; }
 }
 
 public sealed record ReturnStmt(Expr? Value) : Stmt;
@@ -118,8 +161,14 @@ public sealed record AssignStmt(string Local, Expr Value) : Stmt;
 public sealed record StoreFieldStmt(Expr? Instance, string Field, Expr Value) : Stmt;
 public sealed record IfStmt(Expr Condition, List<Stmt> WhenTrue, List<Stmt> WhenFalse) : Stmt;
 public sealed record WhileStmt(Expr Condition, List<Stmt> Body) : Stmt;
-public sealed record ThrowStmt(string ExceptionType, string Evidence) : Stmt;
+public sealed record ThrowStmt(string ExceptionType, string Evidence) : Stmt
+{
+    /// <summary>When set, the statement throws this value. Otherwise it throws <c>new ExceptionType()</c>.</summary>
+    public Expr? Value { get; init; }
+}
 public sealed record CtorInitializerStmt(bool IsBase, IReadOnlyList<Expr> Args) : Stmt;
+
+public sealed record ClassInitStmt(string TypeName) : Stmt;
 
 public sealed class ParameterContract
 {
@@ -140,6 +189,8 @@ public sealed class FieldContract
     public string? OwnerType { get; init; }
     public int? OwnerTypeId { get; init; }
     public int? InstanceOffset { get; init; }
+    /// <summary>Offset within the type's static field block. Null for instance fields and for thread-static fields.</summary>
+    public int? StaticOffset { get; init; }
     public ulong? AbsoluteAddress { get; init; }
 }
 
@@ -176,10 +227,14 @@ public sealed class RecoveryRequest
     public IReadOnlyDictionary<int, IReadOnlyList<FieldContract>>? TypeFieldsById { get; init; }
     public IReadOnlyDictionary<int, string>? LayoutNotes { get; init; }
     public IReadOnlyDictionary<ulong, RuntimeHelper>? RuntimeHelpers { get; init; }
+    /// <summary>ELF symbol or PLT address to its name. Used to recognise a helper that reaches <c>__cxa_throw</c>.</summary>
+    public IReadOnlyDictionary<ulong, string>? CodeSymbols { get; init; }
     /// <summary>Resolves one absolute address to an IL2CPP metadata slot, or null when the bytes are not a token.</summary>
     public Func<ulong, MetadataSlot?>? ResolveMetadataSlot { get; init; }
     public AnalysisBudget Budget { get; init; } = AnalysisBudget.Default;
     public CancellationToken CancellationToken { get; init; }
+    /// <summary>Metadata header version. 0 means the Il2CppClass layout table is not applied.</summary>
+    public int MetadataVersion { get; init; }
     public DiscoveryCache? Cache { get; init; }
     /// <summary>Stopwatch timestamp at which the method deadline has elapsed. Null means no deadline.</summary>
     public long? DeadlineTimestamp { get; set; }

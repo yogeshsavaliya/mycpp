@@ -1,0 +1,20 @@
+status: recoveredUnvalidated
+featureComplete: True
+address: 0xD6EF70
+name: <StartUnzoomCo>d__25::System.Collections.IEnumerator.Reset
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6EF78: address 0x1C7AB58 is a metadata Type slot (System.NotSupportedException).
+Evidence: 0xD6EF7C: metadata-init helper at 0xCA5CF0 (one branch) returns the resolved Type System.NotSupportedException.
+Evidence: 0xD6EF80: allocation of System.NotSupportedException. The helper at 0xCA5EEC is one branch. new System.NotSupportedException() was not emitted; the following constructor sequence is not yet proven equal to that type's constructor.
+Evidence: 0xD6EF8C: System.NotSupportedException was allocated and then its constructor was called on that object. The pair is new System.NotSupportedException(...).
+Evidence: 0xD6EF94: address 0x1C7AF80 is a metadata Method slot (System.Void System.Collections.IEnumerator.Reset()).
+Evidence: 0xD6EF98: metadata-init helper at 0xCA5CF0 (one branch) returns the resolved Method System.Void System.Collections.IEnumerator.Reset().
+Evidence: 0xD6EFA4: call target 0xCA5DC8 reaches __cxa_throw with System.NotSupportedException in x0. The call is throw of that object. The MethodInfo argument is the IL2CPP exception frame and is not emitted.
+
+csharp:
+unchecked
+{
+    throw new System.NotSupportedException();
+}

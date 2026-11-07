@@ -1,0 +1,91 @@
+status: recoveredUnvalidated
+featureComplete: False
+address: 0xD6EA14
+name: CameraController::UpdateFOV
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6EA30: elided IL2CPP lazy runtime-metadata init. The flag byte, the bit-0 test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.
+Evidence: 0xD6EA74: runtime class init of SnakeWarzOnline.GameController. The cctor_finished word at klass+0xE0 and the following init call were replaced with an explicit class initializer. No field was invented for the word.
+Evidence: 0xD6EA9C: runtime class init of SnakeWarzOnline.GameController. The cctor_finished word at klass+0xE0 and the following init call were replaced with an explicit class initializer. No field was invented for the word.
+Evidence: 0xD6EAC8: runtime class init of UnityEngine.Object. The cctor_finished word at klass+0xE0 and the following init call were replaced with an explicit class initializer. No field was invented for the word.
+Evidence: 0xD6EB10: runtime class init of SnakeWarzOnline.GameController. The cctor_finished word at klass+0xE0 and the following init call were replaced with an explicit class initializer. No field was invented for the word.
+Evidence: 0xD6EA28: address 0x1C7AAA8 is a metadata Type slot (SnakeWarzOnline.GameController).
+Evidence: 0xD6EA6C: load of resolved metadata Type SnakeWarzOnline.GameController.
+Evidence: 0xD6EA80: load of Il2CppClass.static_fields at +0xB8 for SnakeWarzOnline.GameController.
+Evidence: 0xD6EA84: static field SnakeWarzOnline.GameController::isGameFinished at static offset 0x12.
+Evidence: 0xD6EAAC: static field SnakeWarzOnline.GameController::isGameStarted at static offset 0x11.
+Evidence: 0xD6EAB8: address 0x1C7AAD8 is a metadata Type slot (UnityEngine.Object).
+Evidence: 0xD6EAC0: load of resolved metadata Type UnityEngine.Object.
+Evidence: 0xD6EB8C: call target 0xCA5EF0 raises System.NullReferenceException. The type name is a read-only string reached before __cxa_throw, and the call takes no exception object.
+Evidence: 0xD6EAEC: address 0x1C7AF60 is a metadata Method slot (T UnityEngine.GameObject.GetComponent<SnakeWarzOnline.PlayerController>).
+Evidence: 0xD6EAF0: load of resolved metadata Method T UnityEngine.GameObject.GetComponent<SnakeWarzOnline.PlayerController>.
+Evidence: 0xD6EAF4: method slot T UnityEngine.GameObject.GetComponent<SnakeWarzOnline.PlayerController> supplies <SnakeWarzOnline.PlayerController>. The hidden MethodInfo argument is not emitted.
+Evidence: 0xD6EB04: load of resolved metadata Type SnakeWarzOnline.GameController.
+Evidence: 0xD6EB20: load of Il2CppClass.static_fields at +0xB8 for SnakeWarzOnline.GameController.
+Evidence: 0xD6EB30: static field SnakeWarzOnline.GameController::initialBodyParts at static offset 0x48.
+Evidence: 0xD6EB60: address 0x1C7AB80 is a metadata Type slot (SnakeWarzOnline.CameraController).
+Evidence: 0xD6EB70: load of resolved metadata Type SnakeWarzOnline.CameraController.
+Evidence: 0xD6EB78: load of Il2CppClass.static_fields at +0xB8 for SnakeWarzOnline.CameraController.
+Evidence: 0xD6EB7C: static field SnakeWarzOnline.CameraController::currentUnzoomValue at static offset 0x8.
+Evidence: 0xD6EB88: unconditional branch to known method entry 0x1959C44 (Camera.set_orthographicSize) with the frame restored is a tail call.
+Evidence: The class initializer of SnakeWarzOnline.GameController runs as part of the next static member access, so the explicit check was not emitted again.
+Evidence: The class initializer of UnityEngine.Object runs as part of the next static member access, so the explicit check was not emitted again.
+
+csharp:
+unchecked
+{
+    if ((!SnakeWarzOnline.GameController.isGameFinished))
+    {
+        if ((!SnakeWarzOnline.GameController.isGameStarted))
+        {
+            return;
+        }
+        else
+        {
+            UnityEngine.GameObject t3 = this.targetToFollow;
+            bool t4 = UnityEngine.Object.op_Implicit(t3);
+            if ((!t4))
+            {
+                return;
+            }
+            else
+            {
+                UnityEngine.GameObject t5 = this.targetToFollow;
+                if ((t5 == null))
+                {
+                    throw new System.NullReferenceException();
+                }
+                else
+                {
+                    SnakeWarzOnline.PlayerController t6 = t5.GetComponent<SnakeWarzOnline.PlayerController>();
+                    if ((t6 == null))
+                    {
+                        throw new System.NullReferenceException();
+                    }
+                    else
+                    {
+                        int t7 = t6.get_NetworkSize();
+                        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(SnakeWarzOnline.GameController).TypeHandle);
+                        UnityEngine.Camera t8 = this.myCamera;
+                        int t9 = SnakeWarzOnline.GameController.initialBodyParts;
+                        this.additionalFov = ((!((((float)(t7 - t9)) / 75f) < 0f)) ? (float.IsNaN((((float)(t7 - t9)) / 75f)) || float.IsNaN(10f) ? float.NaN : ((((float)(t7 - t9)) / 75f) < 10f || ((((float)(t7 - t9)) / 75f) == 10f && float.IsNegative((((float)(t7 - t9)) / 75f)))) ? (((float)(t7 - t9)) / 75f) : 10f) : 0f);
+                        if ((t8 == null))
+                        {
+                            throw new System.NullReferenceException();
+                        }
+                        else
+                        {
+                            t8.set_orthographicSize((SnakeWarzOnline.CameraController.currentUnzoomValue + (((!((((float)(t7 - t9)) / 75f) < 0f)) ? (float.IsNaN((((float)(t7 - t9)) / 75f)) || float.IsNaN(10f) ? float.NaN : ((((float)(t7 - t9)) / 75f) < 10f || ((((float)(t7 - t9)) / 75f) == 10f && float.IsNegative((((float)(t7 - t9)) / 75f)))) ? (((float)(t7 - t9)) / 75f) : 10f) : 0f) + this.baseFov)));
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        return;
+    }
+}

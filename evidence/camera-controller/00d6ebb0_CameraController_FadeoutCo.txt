@@ -1,0 +1,22 @@
+status: recoveredUnvalidated
+featureComplete: True
+address: 0xD6EBB0
+name: CameraController::FadeoutCo
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6EBD4: elided IL2CPP lazy runtime-metadata init. The flag byte, the bit-0 test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.
+Evidence: 0xD6EBC8: address 0x1C7AF68 is a metadata Type slot (SnakeWarzOnline.CameraController+<FadeoutCo>d__22).
+Evidence: 0xD6EBEC: load of resolved metadata Type SnakeWarzOnline.CameraController+<FadeoutCo>d__22.
+Evidence: 0xD6EBF0: allocation of SnakeWarzOnline.CameraController+<FadeoutCo>d__22. The helper at 0xCA5EEC is one branch. new SnakeWarzOnline.CameraController+<FadeoutCo>d__22() was not emitted; the following constructor sequence is not yet proven equal to that type's constructor.
+Evidence: 0xD6EBFC: System.Object.ctor on an allocated instance adds no field writes. It was not rewritten as new T().
+
+csharp:
+unchecked
+{
+    SnakeWarzOnline.CameraController._FadeoutCo_d__22 t1 = ((SnakeWarzOnline.CameraController._FadeoutCo_d__22)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(SnakeWarzOnline.CameraController._FadeoutCo_d__22)));
+    t1.__1__state = 0;
+    t1.__4__this = this;
+    t1._d = _d;
+    return t1;
+}

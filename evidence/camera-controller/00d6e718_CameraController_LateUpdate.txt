@@ -1,0 +1,17 @@
+status: recoveredUnvalidated
+featureComplete: False
+address: 0xD6E718
+name: CameraController::LateUpdate
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6E734: unconditional branch to known method entry 0xD6EA14 (CameraController.UpdateFOV) with the frame restored is a tail call.
+
+csharp:
+unchecked
+{
+    this.CalculateDistanceToTarget();
+    this.FollowPlayer();
+    this.UpdateFOV();
+    return;
+}

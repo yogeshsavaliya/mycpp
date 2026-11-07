@@ -96,7 +96,7 @@ export function ResultsPage() {
                           {type.methods.map((method) => (
                             <button key={method.index} className={method.index === selected ? "method-button selected" : "method-button"} onClick={() => setSelected(method.index)}>
                               {method.name}
-                              <small>{method.statusLabel}{method.placeholder ? " · placeholder" : ""}</small>
+                              <small>{method.statusLabel}{method.placeholder ? " · placeholder" : ""}{featureLabel(method)}</small>
                             </button>
                           ))}
                         </details>
@@ -115,7 +115,7 @@ export function ResultsPage() {
                     <h2 style={{ margin: 0 }}>{detail.summary.declaringType}.{detail.summary.name}</h2>
                     <div className="muted">{detail.signature}</div>
                   </div>
-                  <span className="status warn">{detail.summary.statusLabel}</span>
+                  <span className="status warn">{detail.summary.statusLabel}{featureLabel(detail.summary)}</span>
                 </div>
                 {detail.csharpIsPlaceholder && <div className="notice"><strong>Method body not recovered.</strong><div>The text below is a throwing placeholder. It is not recovered logic.</div></div>}
                 <div className="tabs">
@@ -149,7 +149,12 @@ export function ResultsPage() {
                   </div>
                 )}
                 {tab === "input" && <pre>{input || "Loading input information…"}</pre>}
-                {tab === "report" && <pre>{report || "Loading the recovery report…"}</pre>}
+                {tab === "report" && (
+                  <>
+                    {featureSummary(report) && <p>{featureSummary(report)}</p>}
+                    <pre>{report || "Loading the recovery report…"}</pre>
+                  </>
+                )}
               </>
             )}
           </section>
@@ -157,6 +162,25 @@ export function ResultsPage() {
       )}
     </>
   );
+}
+
+function featureLabel(method: MethodSummary) {
+  if (method.featureComplete === true)
+    return " · feature-complete";
+  if (method.featureComplete === false && !method.placeholder && method.status === "RecoveredUnvalidated")
+    return " · dependency-incomplete";
+  return "";
+}
+
+function featureSummary(report: string) {
+  try {
+    const body = JSON.parse(report) as { breakdown?: { scope?: string; featureComplete?: number; emittedWithoutPlaceholder?: number }[] };
+    if (!body.breakdown)
+      return "";
+    return body.breakdown.map((stage) => (stage.scope ?? "scope") + ": " + (stage.featureComplete ?? 0) + " feature-complete of " + (stage.emittedWithoutPlaceholder ?? 0) + " emitted").join(" · ");
+  } catch {
+    return "";
+  }
 }
 
 function group(methods: MethodSummary[]) {

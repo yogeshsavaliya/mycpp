@@ -273,6 +273,7 @@ public static class OutputWriter
             EnumUnderlyingType = underlying,
             EnumMembers = members,
             Events = facts?.Events ?? [],
+            Interfaces = (facts?.Interfaces ?? []).Select(implemented => Present(implemented.Display, implemented, names, aliases)).Where(text => !string.IsNullOrWhiteSpace(text)).ToList(),
             Fields = fields,
             Methods = bodies
         };

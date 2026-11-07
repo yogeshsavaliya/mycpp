@@ -1,0 +1,35 @@
+CameraController recovery evidence
+Parent commit: ab3b5cd304fc81059e2306b861b75a69f362f375
+SDK: 9.0.320 (global.json, net9.0)
+llvm-objdump: Ubuntu LLVM 18.1.3
+Analysis of this tree before the commit that adds it. The binary identity still reports the parent SHA because the tree was dirty.
+
+SnakeWarzOnline.apk
+  sha256 5702a80722c8470e0ca75a7121e1978618c5f65c4e53f0ca1ff365d1182e5464
+lib/arm64-v8a/libil2cpp.so
+  sha256 3605f438333ccbc84f0c20e53cdbb505a8055b549f3f1d5b30a33d6d4fff7d17
+global-metadata.dat v29 (layout 29.1)
+  sha256 416f78ada63c88bee3210c62cf756574a649edd200e0012e697cede01fc99e8f
+Unity 2022.3.4f1
+
+analyze exit 0
+unique recovered bodies 8812
+unsupported 13375
+failed 32
+internal errors 0
+compilation checked 0
+behaviour checked on the APK 0
+
+Gameplay and third-party: discovered 7727, mapped 7389, emitted 1935, feature-complete 1642
+Framework: discovered 29517, mapped 28347, emitted 6877, feature-complete 6877
+All assemblies: discovered 37244, mapped 35736, emitted 8812, feature-complete 8519
+
+Tests: Il2CppRecover.Tests 140 passed, Il2CppRecover.Web.Tests 10 passed. Desktop project builds.
+
+Each method has a .s disassembly (llvm-objdump --start-address/--stop-address) and a .txt with status, feature completeness, diagnostics, and the emitted C#.
+
+MassController / SnakeWarzIO was not supplied and was not tested.
+Unity 2022.3.4f1 reference assemblies were not in the workspace, so the export was not compiled against them.
+The generated CameraController.cs contains no "private virtual".
+Iterator classes list IEnumerator<object>, IEnumerator, and IDisposable.
+MoveNext is emitted as System.Collections.IEnumerator.MoveNext.

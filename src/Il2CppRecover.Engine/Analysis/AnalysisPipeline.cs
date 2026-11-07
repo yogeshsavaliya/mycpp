@@ -225,6 +225,8 @@ public static class AnalysisPipeline
         public Dictionary<string, List<EngineTypeInfo>> TypesByName = new(StringComparer.Ordinal);
         public int SameNameGroups;
         public IReadOnlyDictionary<ulong, RuntimeHelper> Helpers = new Dictionary<ulong, RuntimeHelper>();
+        public IReadOnlyDictionary<ulong, string> CodeSymbols = new Dictionary<ulong, string>();
+        public int MetadataVersion;
         public DiscoveryCache Cache { get; } = new(64);
     }
 
@@ -259,7 +261,9 @@ public static class AnalysisPipeline
             TypesByName = built.ByName,
             TypeFieldsById = built.FieldsById,
             LayoutNotes = built.LayoutNotes,
-            SameNameGroups = built.SameNameGroups
+            SameNameGroups = built.SameNameGroups,
+            MetadataVersion = catalog.HeaderVersion,
+            CodeSymbols = binary is null ? new Dictionary<ulong, string>() : ElfCodeSymbols.Read(binary)
         };
         trace.Write("type-identity", new Dictionary<string, object?>
         {
@@ -374,6 +378,11 @@ public static class AnalysisPipeline
         }
         if (info.IsValueType)
         {
+            if (HfaType.TryComponents(type.Display, out _))
+            {
+                kind = PrimitiveKind.Reference;
+                return true;
+            }
             why = "value type '" + type.Display + "' (struct passing and returning are not modelled)";
             return false;
         }
@@ -422,7 +431,7 @@ public static class AnalysisPipeline
         }
         return new MethodContract
         {
-            Name = method.Name,
+            Name = DeclaredMethodName(method, native),
             DeclaringType = declaringType,
             DeclaringTypeId = native.DeclaringTypeId >= 0 ? native.DeclaringTypeId : null,
             Namespace = ns,
@@ -445,7 +454,8 @@ public static class AnalysisPipeline
         var diagnostics = new List<string>();
         nativeByIndex.TryGetValue(method.MetadataIndex, out var resolvedNative);
         var returnTypeName = ResolveDeclaredTypes(method, resolvedNative, diagnostics, out var parameterTypeNames);
-        var signature = (method.IsStatic ? "static " : "") + returnTypeName + " " + type.Namespace + (type.Namespace.Length == 0 ? "" : ".") + type.Name + "::" + method.Name + "(" + string.Join(", ", method.Parameters.Select((p, i) => parameterTypeNames[i] + " " + p.Name)) + ")";
+        var methodName = DeclaredMethodName(method, resolvedNative);
+        var signature = (method.IsStatic ? "static " : "") + returnTypeName + " " + type.Namespace + (type.Namespace.Length == 0 ? "" : ".") + type.Name + "::" + methodName + "(" + string.Join(", ", method.Parameters.Select((p, i) => parameterTypeNames[i] + " " + p.Name)) + ")";
         string? address = null;
         string? fileOffset = null;
         var instructions = new List<NativeInstruction>();
@@ -525,7 +535,9 @@ public static class AnalysisPipeline
                         TypeFieldsById = ctx.TypeFieldsById,
                         LayoutNotes = ctx.LayoutNotes,
                         RuntimeHelpers = ctx.Helpers,
+                        CodeSymbols = ctx.CodeSymbols,
                         ResolveMetadataSlot = MetadataSlotResolver.TryResolve,
+                        MetadataVersion = ctx.MetadataVersion,
                         Budget = options.Budget,
                         CancellationToken = cancellationToken,
                         Cache = ctx.Cache,
@@ -593,7 +605,7 @@ public static class AnalysisPipeline
             Namespace = type.Namespace,
             DeclaringType = type.Name,
             TypeMetadataIndex = type.MetadataIndex,
-            Name = method.Name,
+            Name = methodName,
             Signature = signature,
             ReturnTypeName = returnTypeName,
             ParameterNames = method.Parameters.Select(p => p.Name).ToList(),
@@ -632,9 +644,16 @@ public static class AnalysisPipeline
         return Math.Max(cap, 0);
     }
 
+    private static string DeclaredMethodName(CatalogMethod method, EngineMethod? native)
+    {
+        if (native?.ExplicitInterfaceName is { Length: > 0 } mapped && !method.Name.Contains('.', StringComparison.Ordinal))
+            return mapped;
+        return method.Name;
+    }
+
     private static bool TryContract(CatalogImage image, CatalogType type, CatalogMethod method, EngineMethod native, EngineTypeInfo? typeInfo, ImageContext ctx, out MethodContract contract, out string error)
     {
-        contract = new MethodContract { Name = method.Name, DeclaringType = type.Name, Namespace = type.Namespace, Assembly = image.Name, IsStatic = method.IsStatic };
+        contract = new MethodContract { Name = DeclaredMethodName(method, native), DeclaringType = type.Name, Namespace = type.Namespace, Assembly = image.Name, IsStatic = method.IsStatic };
         error = "";
         if (typeInfo is not null && typeInfo.IsValueType && !method.IsStatic)
         {
@@ -670,7 +689,7 @@ public static class AnalysisPipeline
         }
         contract = new MethodContract
         {
-            Name = method.Name,
+            Name = DeclaredMethodName(method, native),
             DeclaringType = type.Name,
             DeclaringTypeId = type.MetadataIndex,
             Namespace = type.Namespace,

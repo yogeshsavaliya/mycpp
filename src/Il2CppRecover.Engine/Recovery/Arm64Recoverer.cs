@@ -108,7 +108,7 @@ public static class Arm64Recoverer
             return new MethodBodyResult
             {
                 Status = legacy.Status,
-                Diagnostics = notes,
+                Diagnostics = Once(notes),
                 Instructions = legacy.Instructions,
                 CSharp = legacy.CSharp,
                 CSharpIsPlaceholder = legacy.CSharpIsPlaceholder,
@@ -137,7 +137,7 @@ public static class Arm64Recoverer
             return new MethodBodyResult
             {
                 Status = status,
-                Diagnostics = diagnostics,
+                Diagnostics = Once(diagnostics),
                 Instructions = listing,
                 CSharp = CSharpEmitter.Placeholder(status, diagnostics),
                 CSharpIsPlaceholder = true,
@@ -173,7 +173,7 @@ public static class Arm64Recoverer
             return new MethodBodyResult
             {
                 Status = MethodRecoveryStatus.PartiallyRecovered,
-                Diagnostics = notes,
+                Diagnostics = Once(notes),
                 Instructions = listing,
                 CSharp = CSharpEmitter.Placeholder(MethodRecoveryStatus.PartiallyRecovered, notes),
                 CSharpIsPlaceholder = true,
@@ -192,7 +192,7 @@ public static class Arm64Recoverer
         return new MethodBodyResult
         {
             Status = MethodRecoveryStatus.RecoveredUnvalidated,
-            Diagnostics = diagnostics,
+            Diagnostics = Once(diagnostics),
             Instructions = listing,
             CSharp = body,
             CSharpIsPlaceholder = false,
@@ -227,7 +227,7 @@ public static class Arm64Recoverer
         return new MethodBodyResult
         {
             Status = ex.Status,
-            Diagnostics = notes,
+            Diagnostics = Once(notes),
             Instructions = ListingFor(fn, rendered),
             CSharp = CSharpEmitter.Placeholder(ex.Status, notes),
             CSharpIsPlaceholder = true,
@@ -353,7 +353,7 @@ public static class Arm64Recoverer
             return new MethodBodyResult
             {
                 Status = MethodRecoveryStatus.PartiallyRecovered,
-                Diagnostics = notes,
+                Diagnostics = Once(notes),
                 Instructions = rendered,
                 CSharp = CSharpEmitter.Placeholder(MethodRecoveryStatus.PartiallyRecovered, notes),
                 CSharpIsPlaceholder = true,
@@ -366,7 +366,7 @@ public static class Arm64Recoverer
         return new MethodBodyResult
         {
             Status = MethodRecoveryStatus.RecoveredUnvalidated,
-            Diagnostics = diagnostics,
+            Diagnostics = Once(diagnostics),
             Instructions = rendered,
             CSharp = body,
             CSharpIsPlaceholder = false,
@@ -1417,6 +1417,18 @@ public static class Arm64Recoverer
         return links;
     }
 
+    private static IReadOnlyList<string> Once(IEnumerable<string> lines)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var list = new List<string>();
+        foreach (var line in lines)
+        {
+            if (line.Length > 0 && seen.Add(line))
+                list.Add(line);
+        }
+        return list;
+    }
+
     private static MethodBodyResult Fail(RecoveryRequest request, string diagnostic, IReadOnlyList<NativeInstruction> instructions) =>
         new()
         {
@@ -1435,7 +1447,7 @@ public static class Arm64Recoverer
         return new MethodBodyResult
         {
             Status = status,
-            Diagnostics = notes,
+            Diagnostics = Once(notes),
             Instructions = instructions,
             CSharp = CSharpEmitter.Placeholder(status, notes),
             CSharpIsPlaceholder = true

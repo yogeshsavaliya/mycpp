@@ -1,0 +1,16 @@
+status: recoveredUnvalidated
+featureComplete: True
+address: 0xD68BE4
+name: CameraController::StartUnzoom
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD68C08: unconditional branch to known method entry 0x197B538 (MonoBehaviour.StartCoroutine) with the frame restored is a tail call.
+
+csharp:
+unchecked
+{
+    System.Collections.IEnumerator t1 = this.StartUnzoomCo(0f, 6f);
+    this.StartCoroutine(t1);
+    return;
+}

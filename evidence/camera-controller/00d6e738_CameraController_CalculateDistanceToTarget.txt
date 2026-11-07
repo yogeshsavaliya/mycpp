@@ -1,0 +1,62 @@
+status: recoveredUnvalidated
+featureComplete: True
+address: 0xD6E738
+name: CameraController::CalculateDistanceToTarget
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6E760: elided IL2CPP lazy runtime-metadata init. The flag byte, the bit-0 test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.
+Evidence: 0xD6E7F0: elided IL2CPP lazy runtime-metadata init. The flag byte, the whole-byte test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.
+Evidence: 0xD6E784: runtime class init of UnityEngine.Object. The cctor_finished word at klass+0xE0 and the following init call were replaced with an explicit class initializer. No field was invented for the word.
+Evidence: 0xD6E824: runtime class init of System.Math. The cctor_finished word at klass+0xE0 and the following init call were replaced with an explicit class initializer. No field was invented for the word.
+Evidence: 0xD6E758: address 0x1C7AAD8 is a metadata Type slot (UnityEngine.Object).
+Evidence: 0xD6E778: load of resolved metadata Type UnityEngine.Object.
+Evidence: 0xD6E860: call target 0xCA5EF0 raises System.NullReferenceException. The type name is a read-only string reached before __cxa_throw, and the call takes no exception object.
+Evidence: 0xD6E7B0: UnityEngine.Vector3 is returned in s0-s2 (AAPCS64 HFA).
+Evidence: 0xD6E7D8: UnityEngine.Vector3 is returned in s0-s2 (AAPCS64 HFA).
+Evidence: 0xD6E80C: address 0x1C7ADD8 is a metadata Type slot (System.Math).
+Evidence: 0xD6E81C: load of resolved metadata Type System.Math.
+Evidence: The class initializer of UnityEngine.Object runs as part of the next static member access, so the explicit check was not emitted again.
+
+csharp:
+unchecked
+{
+    UnityEngine.GameObject t1 = this.targetToFollow;
+    bool t2 = UnityEngine.Object.op_Implicit(t1);
+    if ((!t2))
+    {
+        return;
+    }
+    else
+    {
+        UnityEngine.Transform t3 = this.get_transform();
+        if ((t3 == null))
+        {
+            throw new System.NullReferenceException();
+        }
+        else
+        {
+            UnityEngine.Vector3 t4 = t3.get_position();
+            UnityEngine.GameObject t5 = this.targetToFollow;
+            if ((t5 == null))
+            {
+                throw new System.NullReferenceException();
+            }
+            else
+            {
+                UnityEngine.Transform t6 = t5.get_transform();
+                if ((t6 == null))
+                {
+                    throw new System.NullReferenceException();
+                }
+                else
+                {
+                    UnityEngine.Vector3 t7 = t6.get_position();
+                    System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(System.Math).TypeHandle);
+                    this.currentDistanceToTarget = System.MathF.Sqrt((((t4.z - t7.z) * (t4.z - t7.z)) + (((t4.x - t7.x) * (t4.x - t7.x)) + ((t4.y - t7.y) * (t4.y - t7.y)))));
+                    return;
+                }
+            }
+        }
+    }
+}

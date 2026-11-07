@@ -1,0 +1,17 @@
+status: recoveredUnvalidated
+featureComplete: True
+address: 0xD6E6C8
+name: CameraController::Start
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6E6E4: elided IL2CPP lazy runtime-metadata init. The flag byte, the bit-0 test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.
+Evidence: 0xD6E6DC: address 0x1C7ADD0 is a metadata StringLiteral slot (PlayerHead).
+Evidence: 0xD6E6FC: load of resolved metadata StringLiteral PlayerHead.
+
+csharp:
+unchecked
+{
+    this.targetToFollow = UnityEngine.GameObject.FindGameObjectWithTag("PlayerHead");
+    return;
+}

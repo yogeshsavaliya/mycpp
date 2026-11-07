@@ -1,0 +1,27 @@
+status: recoveredUnvalidated
+featureComplete: False
+address: 0xD6E4A8
+name: CameraController::OnDisable
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6E4D8: elided IL2CPP lazy runtime-metadata init. The flag byte, the bit-0 test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.
+Evidence: 0xD6E528: runtime class init of SnakeWarzOnline.GameController. The cctor_finished word at klass+0xE0 and the following init call were replaced with an explicit class initializer. No field was invented for the word.
+Evidence: 0xD6E4C8: address 0x1C7AF50 is a metadata Type slot (SnakeWarzOnline.GameController+PlayerIsFound).
+Evidence: 0xD6E4CC: address 0x1C7AF58 is a metadata Method slot (System.Void RegisterNewPlayer()).
+Evidence: 0xD6E4D0: address 0x1C7AAA8 is a metadata Type slot (SnakeWarzOnline.GameController).
+Evidence: 0xD6E508: load of resolved metadata Type SnakeWarzOnline.GameController+PlayerIsFound.
+Evidence: 0xD6E50C: allocation of SnakeWarzOnline.GameController+PlayerIsFound. The helper at 0xCA5EEC is one branch. new SnakeWarzOnline.GameController+PlayerIsFound() was not emitted; the following constructor sequence is not yet proven equal to that type's constructor.
+Evidence: 0xD6E510: load of resolved metadata Method System.Void RegisterNewPlayer().
+Evidence: 0xD6E51C: SnakeWarzOnline.GameController+PlayerIsFound..ctor(object, System.IntPtr) receives the method RegisterNewPlayer. IL2CPP passes the method pointer in the IntPtr; the C# form is new SnakeWarzOnline.GameController+PlayerIsFound(RegisterNewPlayer).
+Evidence: 0xD6E520: load of resolved metadata Type SnakeWarzOnline.GameController.
+Evidence: 0xD6E540: unconditional branch to known method entry 0xD6E544 (GameController.remove_OnPlayerIsFound) with the frame restored is a tail call.
+Evidence: The class initializer of SnakeWarzOnline.GameController runs as part of the next static member access, so the explicit check was not emitted again.
+
+csharp:
+unchecked
+{
+    SnakeWarzOnline.GameController.PlayerIsFound t1 = new SnakeWarzOnline.GameController.PlayerIsFound(this.RegisterNewPlayer);
+    SnakeWarzOnline.GameController.remove_OnPlayerIsFound(t1);
+    return;
+}

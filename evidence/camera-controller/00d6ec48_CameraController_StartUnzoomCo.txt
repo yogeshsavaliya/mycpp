@@ -1,0 +1,23 @@
+status: recoveredUnvalidated
+featureComplete: True
+address: 0xD6EC48
+name: CameraController::StartUnzoomCo
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6EC6C: elided IL2CPP lazy runtime-metadata init. The flag byte, the bit-0 test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.
+Evidence: 0xD6EC60: address 0x1C7AF70 is a metadata Type slot (SnakeWarzOnline.CameraController+<StartUnzoomCo>d__25).
+Evidence: 0xD6EC84: load of resolved metadata Type SnakeWarzOnline.CameraController+<StartUnzoomCo>d__25.
+Evidence: 0xD6EC88: allocation of SnakeWarzOnline.CameraController+<StartUnzoomCo>d__25. The helper at 0xCA5EEC is one branch. new SnakeWarzOnline.CameraController+<StartUnzoomCo>d__25() was not emitted; the following constructor sequence is not yet proven equal to that type's constructor.
+Evidence: 0xD6EC94: System.Object.ctor on an allocated instance adds no field writes. It was not rewritten as new T().
+Evidence: 0xD6EC9C: pair access split into from at 0x20 and to at 0x24.
+
+csharp:
+unchecked
+{
+    SnakeWarzOnline.CameraController._StartUnzoomCo_d__25 t1 = ((SnakeWarzOnline.CameraController._StartUnzoomCo_d__25)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(SnakeWarzOnline.CameraController._StartUnzoomCo_d__25)));
+    t1.__1__state = 0;
+    t1.from = from;
+    t1.to = to;
+    return t1;
+}

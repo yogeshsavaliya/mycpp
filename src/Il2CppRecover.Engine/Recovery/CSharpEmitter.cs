@@ -65,6 +65,7 @@ public static class CSharpEmitter
         public bool DisambiguateName { get; set; }
         public List<string> ExternAliases { get; } = [];
         public string? BaseType { get; init; }
+        public IReadOnlyList<string> Interfaces { get; init; } = [];
         public bool IsValueType { get; init; }
         public bool IsEnum { get; init; }
         public string? EnumUnderlyingType { get; init; }
@@ -155,8 +156,16 @@ public static class CSharpEmitter
         if (t.IsEnum)
             Pad(sb, indent).AppendLine("// Metadata marks this type as an enum, but member values were not all read, so it is not declared as a C# enum.");
         Pad(sb, indent).Append("public ").Append(t.IsValueType ? "struct " : "class ").Append(declaredName);
+        var bases = new List<string>();
         if (!string.IsNullOrWhiteSpace(t.BaseType) && !t.IsValueType)
-            sb.Append(" : ").Append(FormatDeclaredType(t.BaseType));
+            bases.Add(FormatDeclaredType(t.BaseType));
+        foreach (var implemented in t.Interfaces)
+        {
+            if (!string.IsNullOrWhiteSpace(implemented))
+                bases.Add(FormatDeclaredType(implemented));
+        }
+        if (bases.Count > 0)
+            sb.Append(" : ").Append(string.Join(", ", bases));
         sb.AppendLine();
         Pad(sb, indent).AppendLine("{");
         foreach (var ev in t.Events)
@@ -236,7 +245,7 @@ public static class CSharpEmitter
     {
         static IReadOnlyList<Stmt> Rewrite(IReadOnlyList<Stmt> list) => list.Select(s => s switch
         {
-            ThrowStmt t when t.ExceptionType.StartsWith("IL2CPP_RECOVER_", StringComparison.Ordinal) => new ThrowStmt("System.Exception", t.Evidence) { Addresses = t.Addresses },
+            ThrowStmt t when t.ExceptionType.StartsWith("IL2CPP_RECOVER_", StringComparison.Ordinal) => new ThrowStmt("System.Exception", t.Evidence) { Addresses = t.Addresses, Value = t.Value },
             IfStmt i => new IfStmt(i.Condition, Rewrite(i.WhenTrue).ToList(), Rewrite(i.WhenFalse).ToList()) { Addresses = i.Addresses },
             _ => s
         }).ToList();
@@ -310,6 +319,11 @@ public static class CSharpEmitter
                 Pad(sb, indent).Append(LocalType(declare)).Append(' ').Append(SanitizeIdent(declare.Local)).Append(" = ").Append(EmitAs(declare.Value, declare.Type)).AppendLine(";");
                 break;
             case ThrowStmt thrown:
+                if (thrown.Value is not null)
+                {
+                    Pad(sb, indent).Append("throw ").Append(EmitExpr(thrown.Value)).AppendLine(";");
+                    break;
+                }
                 if (thrown.ExceptionType.StartsWith("IL2CPP_RECOVER_", StringComparison.Ordinal))
                     throw new UnemittableException("an unidentified noreturn helper (" + thrown.ExceptionType + ") has no C# equivalent");
                 Pad(sb, indent).Append("throw new ").Append(thrown.ExceptionType).AppendLine("();");
@@ -332,7 +346,7 @@ public static class CSharpEmitter
             case StoreFieldStmt store:
                 Pad(sb, indent);
                 if (store.Instance is null)
-                    sb.Append(SanitizeIdent(store.Field));
+                    sb.Append(store.StaticOwner is null ? SanitizeIdent(store.Field) : FormatDeclaredType(store.StaticOwner) + "." + SanitizeIdent(store.Field));
                 else
                     sb.Append(EmitExpr(store.Instance)).Append('.').Append(SanitizeIdent(store.Field));
                 sb.Append(" = ").Append(EmitExpr(store.Value)).AppendLine(";");
@@ -356,6 +370,10 @@ public static class CSharpEmitter
                 WriteStatements(sb, loop.Body, indent + 1);
                 Pad(sb, indent).AppendLine("}");
                 break;
+            case ClassInitStmt init:
+                Pad(sb, indent).Append("System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(")
+                    .Append(FormatDeclaredType(init.TypeName)).AppendLine(").TypeHandle);");
+                break;
         }
     }
 
@@ -374,9 +392,17 @@ public static class CSharpEmitter
         BinaryExpr b when b.Op is "<<" or ">>" or ">>>" => "(" + EmitAs(b.Left, b.Type) + " " + b.Op + " " + EmitAs(b.Right, PrimitiveKind.Int32) + ")",
         BinaryExpr b => "(" + EmitAs(b.Left, b.Type) + " " + b.Op + " " + EmitAs(b.Right, b.Type) + ")",
         UnaryExpr u => "(" + u.Op + EmitAs(u.Value, u.Type) + ")",
-        CastExpr c => "((" + CsType(c.Target) + ")" + EmitExpr(c.Value) + ")",
-        FieldExpr f => f.Instance is null ? SanitizeIdent(f.Name) : EmitExpr(f.Instance) + "." + SanitizeIdent(f.Name),
+        CastExpr c => "((" + (c.RefType is not null ? FormatDeclaredType(c.RefType) : CsType(c.Target)) + ")" + EmitExpr(c.Value) + ")",
+        FieldExpr f => f.Instance is null
+            ? (f.StaticType is null ? SanitizeIdent(f.Name) : FormatDeclaredType(f.StaticType) + "." + SanitizeIdent(f.Name))
+            : EmitExpr(f.Instance) + "." + SanitizeIdent(f.Name),
         CallExpr call => EmitCall(call),
+        StringConstExpr text => EmitString(text.Value),
+        TypeOfExpr typeOf => "typeof(" + FormatDeclaredType(typeOf.TypeName) + ")",
+        NewExpr created => "new " + FormatDeclaredType(created.TypeName) + "(" + string.Join(", ", created.Args.Select(EmitExpr)) + ")",
+        MethodGroupExpr group => (group.Instance is null ? "" : EmitExpr(group.Instance) + ".") + SanitizeIdent(group.Method),
+        BoxExpr box => "((object)(" + FormatDeclaredType(box.TypeName) + ")" + EmitExpr(box.Value) + ")",
+        FloatExtremumExpr extremum => EmitExtremum(extremum),
         ConditionalExpr cond => "(" + EmitExpr(cond.Condition) + " ? " + EmitExpr(cond.WhenTrue) + " : " + EmitExpr(cond.WhenFalse) + ")",
         AddressExpr addr => "0x" + addr.Address.ToString("X"),
         MetadataEntryExpr entry => throw new UnemittableException("metadata entry " + entry.Slot.Kind + " " + entry.Slot.Display + " has no C# form"),
@@ -411,7 +437,19 @@ public static class CSharpEmitter
     private static string EmitCall(CallExpr call)
     {
         var args = string.Join(", ", call.Args.Select(EmitExpr));
+        if (call.Name.Contains('.', StringComparison.Ordinal))
+        {
+            var dot = call.Name.LastIndexOf('.');
+            var iface = call.Name[..dot];
+            var method = SanitizeIdent(call.Name[(dot + 1)..]);
+            if (call.TypeArguments is not null)
+                method += "<" + call.TypeArguments + ">";
+            if (call.Receiver is not null)
+                return "((" + FormatDeclaredType(iface) + ")" + EmitExpr(call.Receiver) + ")." + method + "(" + args + ")";
+        }
         var name = SanitizeIdent(call.Name);
+        if (call.TypeArguments is not null)
+            name += "<" + call.TypeArguments + ">";
         if (call.BaseCall)
             return "base." + name + "(" + args + ")";
         if (call.Receiver is not null)
@@ -425,6 +463,22 @@ public static class CSharpEmitter
     {
         var suffix = f.FloatType == PrimitiveKind.Double ? "d" : "f";
         var type = f.FloatType == PrimitiveKind.Double ? "double" : "float";
+        if (f.FloatType == PrimitiveKind.Single)
+        {
+            var bits = BitConverter.SingleToInt32Bits((float)f.Value);
+            if (bits == unchecked((int)0x80000000))
+                return "-0f";
+            if (float.IsNaN((float)f.Value) && bits is not (unchecked((int)0x7FC00000) or unchecked((int)0xFFC00000)))
+                return "System.BitConverter.Int32BitsToSingle(unchecked((int)" + bits + "))";
+        }
+        else if (BitConverter.DoubleToInt64Bits(f.Value) == unchecked((long)0x8000000000000000))
+            return "-0d";
+        else if (double.IsNaN(f.Value))
+        {
+            var bits = BitConverter.DoubleToInt64Bits(f.Value);
+            if (bits is not (0x7FF8000000000000 or unchecked((long)0xFFF8000000000000)))
+                return "System.BitConverter.Int64BitsToDouble(unchecked((long)" + bits + "))";
+        }
         if (double.IsNaN(f.Value))
             return type + ".NaN";
         if (double.IsPositiveInfinity(f.Value))
@@ -435,6 +489,43 @@ public static class CSharpEmitter
             ? f.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
             : ((float)f.Value).ToString("R", System.Globalization.CultureInfo.InvariantCulture);
         return text + suffix;
+    }
+
+    private static string EmitString(string value)
+    {
+        var sb = new StringBuilder("\"");
+        foreach (var ch in value)
+        {
+            sb.Append(ch switch
+            {
+                '\\' => "\\\\",
+                '"' => "\\\"",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                '\0' => "\\0",
+                _ when char.IsControl(ch) => "\\u" + ((int)ch).ToString("X4"),
+                _ => ch.ToString()
+            });
+        }
+        return sb.Append('"').ToString();
+    }
+
+    private static string EmitExtremum(FloatExtremumExpr expr)
+    {
+        var left = EmitExpr(expr.Left);
+        var right = EmitExpr(expr.Right);
+        var isDouble = expr.Left.Type == PrimitiveKind.Double;
+        var nan = isDouble ? "double.IsNaN" : "float.IsNaN";
+        var negative = isDouble ? "double.IsNegative" : "float.IsNegative";
+        var compare = expr.Minimum ? "<" : ">";
+        var signed = expr.Minimum
+            ? "(" + left + " == " + right + " && " + negative + "(" + left + "))"
+            : "(" + left + " == " + right + " && !" + negative + "(" + left + "))";
+        var numeric = "(" + left + " " + compare + " " + right + " || " + signed + ") ? " + left + " : " + right;
+        if (!expr.Numbers)
+            return "(" + nan + "(" + left + ") || " + nan + "(" + right + ") ? " + (isDouble ? "double" : "float") + ".NaN : " + numeric + ")";
+        return "(" + nan + "(" + left + ") ? " + right + " : " + nan + "(" + right + ") ? " + left + " : " + numeric + ")";
     }
 
     private static string LocalType(DeclareStmt declare)
@@ -492,14 +583,22 @@ public static class CSharpEmitter
             sb.Append(DeclarationType(contract.DeclaredReturnType, contract.ReturnType)).Append(' ').Append(SanitizeIdent(contract.Name)).Append('(').Append(parameters).AppendLine(");");
             return;
         }
+        else if (contract.Name.Contains('.', StringComparison.Ordinal))
+        {
+            Pad(sb, indent);
+            sb.Append(DeclarationType(contract.DeclaredReturnType, contract.ReturnType)).Append(' ').Append(ExplicitName(contract.Name)).Append('(').Append(parameters).AppendLine(")");
+        }
         else
         {
             Pad(sb, indent).Append(AccessPrefix(contract.Access));
             if (contract.IsStatic)
                 sb.Append("static ");
-            else if (contract.IsVirtual)
+            else if (contract.IsVirtual && !string.Equals(contract.Access, "private", StringComparison.Ordinal))
                 sb.Append("virtual ");
-            sb.Append(DeclarationType(contract.DeclaredReturnType, contract.ReturnType)).Append(' ').Append(SanitizeIdent(contract.Name)).Append('(').Append(parameters).AppendLine(")");
+            sb.Append(DeclarationType(contract.DeclaredReturnType, contract.ReturnType)).Append(' ').Append(SanitizeIdent(contract.Name)).Append('(').Append(parameters).Append(')');
+            if (contract.IsVirtual && string.Equals(contract.Access, "private", StringComparison.Ordinal))
+                sb.Append(" // C# rejects a private method that is also virtual, and this metadata name is not an interface method");
+            sb.AppendLine();
         }
 
         Pad(sb, indent).AppendLine("{");
@@ -510,6 +609,12 @@ public static class CSharpEmitter
             Pad(sb, indent + 1).AppendLine(line);
         }
         Pad(sb, indent).AppendLine("}");
+    }
+
+    private static string ExplicitName(string name)
+    {
+        var chars = name.Select(c => char.IsLetterOrDigit(c) || c is '.' or '_' or '<' or '>' or ',' ? c : '_').ToArray();
+        return new string(chars);
     }
 
     private static string AccessPrefix(string access) => access switch

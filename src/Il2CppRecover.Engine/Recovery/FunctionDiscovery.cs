@@ -9,6 +9,7 @@ namespace Il2CppRecover.Recovery;
 public sealed class CodeSpace
 {
     private readonly Func<ulong, uint?> _readWord;
+    private readonly Func<ulong, byte?>? _readByte;
     private readonly Func<ulong, bool> _isExecutable;
     private readonly ulong[] _entries;
     private readonly Dictionary<ulong, string> _noReturn;
@@ -16,9 +17,10 @@ public sealed class CodeSpace
     /// <summary>An address code may not cross even when no further method entry is known. It is not a method entry.</summary>
     public ulong? Limit { get; init; }
 
-    public CodeSpace(Func<ulong, uint?> readWord, Func<ulong, bool> isExecutable, IEnumerable<ulong> entries, IReadOnlyDictionary<ulong, string>? noReturn = null)
+    public CodeSpace(Func<ulong, uint?> readWord, Func<ulong, bool> isExecutable, IEnumerable<ulong> entries, IReadOnlyDictionary<ulong, string>? noReturn = null, Func<ulong, byte?>? readByte = null)
     {
         _readWord = readWord;
+        _readByte = readByte;
         _isExecutable = isExecutable;
         _entries = entries.Distinct().Order().ToArray();
         _noReturn = noReturn is null ? [] : new Dictionary<ulong, string>(noReturn);
@@ -44,10 +46,18 @@ public sealed class CodeSpace
                 return null;
             return BitConverter.ToUInt32(image, (int)offset);
         }
-        return new CodeSpace(Read, IsExec, entries, noReturn);
+        byte? ReadByte(ulong a)
+        {
+            if (!elf.TryMap(a, out var offset) || offset < 0 || offset >= image.Length)
+                return null;
+            return image[(int)offset];
+        }
+        return new CodeSpace(Read, IsExec, entries, noReturn, ReadByte);
     }
 
     public uint? ReadWord(ulong address) => _readWord(address);
+    /// <summary>A byte at any mapped file address, including read-only data. Null when this image has no byte reader.</summary>
+    public byte? ReadMapped(ulong address) => _readByte?.Invoke(address);
     public bool IsExecutable(ulong address) => _isExecutable(address);
     public bool IsEntry(ulong address) => Array.BinarySearch(_entries, address) >= 0;
     public IReadOnlyList<ulong> Entries => _entries;

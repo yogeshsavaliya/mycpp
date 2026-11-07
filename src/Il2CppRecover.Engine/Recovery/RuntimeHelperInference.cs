@@ -227,9 +227,13 @@ public static class RuntimeHelperInference
         switch (op.Kind)
         {
             case A64Kind.Ldr:
+                if (op.Vector)
+                    yield break;
                 yield return op.Rt;
                 yield break;
             case A64Kind.Ldp:
+                if (op.Vector)
+                    yield break;
                 yield return op.Rt;
                 yield return op.Rt2;
                 yield break;
@@ -253,6 +257,15 @@ public static class RuntimeHelperInference
             case A64Kind.Ucvtf:
             case A64Kind.FcvtToDouble:
             case A64Kind.FcvtToSingle:
+            case A64Kind.Fsqrt:
+            case A64Kind.Fmin:
+            case A64Kind.Fmax:
+            case A64Kind.FminNum:
+            case A64Kind.FmaxNum:
+            case A64Kind.SimdScvtf:
+            case A64Kind.SimdUcvtf:
+            case A64Kind.VectorMov:
+            case A64Kind.SimdOrr:
             case A64Kind.Str:
             case A64Kind.Stp:
             case A64Kind.Cbz:

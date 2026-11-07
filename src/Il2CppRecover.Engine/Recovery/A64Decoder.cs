@@ -288,6 +288,32 @@ public static class A64Decoder
         if ((w & 0x5F200000) == 0x1E200000)
             return DecodeFloat(w, op);
 
+        // Advanced SIMD ORR (vector). mov Vd.16b, Vn.16b is the Rm==Rn alias.
+        // llvm-mc: mov v8.16b, v0.16b = 0x4EA01C08. Fixed bits 0xBFE0FC00 == 0x0EA01C00.
+        if ((w & 0xBFE0FC00) == 0x0EA01C00)
+        {
+            op.Vector = true;
+            op.Rd = (int)(w & 0x1F);
+            op.Rn = (int)((w >> 5) & 0x1F);
+            op.Rm = (int)((w >> 16) & 0x1F);
+            op.Size = (w & 0x40000000) != 0 ? 16 : 8;
+            op.Kind = op.Rm == op.Rn ? A64Kind.VectorMov : A64Kind.SimdOrr;
+            return op;
+        }
+
+        // SCVTF/UCVTF scalar, integer bits already in a SIMD register.
+        // llvm-mc: scvtf s0, s1 = 0x5E21D820; scvtf d0, d1 = 0x5E61D820;
+        // ucvtf s0, s1 = 0x7E21D820; ucvtf d0, d1 = 0x7E61D820.
+        if ((w & 0xDFBFFC00) == 0x5E21D800)
+        {
+            op.Vector = true;
+            op.Rd = (int)(w & 0x1F);
+            op.Rn = (int)((w >> 5) & 0x1F);
+            op.FloatDouble = (w & 0x00400000) != 0;
+            op.Kind = (w & 0x20000000) != 0 ? A64Kind.SimdUcvtf : A64Kind.SimdScvtf;
+            return op;
+        }
+
         op.Kind = A64Kind.Unknown;
         return op;
     }
@@ -354,6 +380,10 @@ public static class A64Decoder
                 1 => A64Kind.Fdiv,
                 2 => A64Kind.Fadd,
                 3 => A64Kind.Fsub,
+                4 => A64Kind.Fmax,
+                5 => A64Kind.Fmin,
+                6 => A64Kind.FmaxNum,
+                7 => A64Kind.FminNum,
                 _ => A64Kind.Unknown
             };
             return op;
@@ -366,6 +396,7 @@ public static class A64Decoder
                 0 => A64Kind.FmovReg,
                 1 => A64Kind.Fabs,
                 2 => A64Kind.Fneg,
+                3 => A64Kind.Fsqrt,
                 5 when !op.FloatDouble => A64Kind.FcvtToDouble,
                 4 when op.FloatDouble => A64Kind.FcvtToSingle,
                 _ => A64Kind.Unknown
@@ -441,8 +472,43 @@ public enum A64Kind
     Csel, Csinc, Csinv, Csneg,
     Madd, Msub, Udiv, Sdiv, Lslv, Lsrv, Asrv,
     Ldr, Str, Ldp, Stp,
-    FmovReg, FmovImm, FmovToGeneral, FmovFromGeneral, Fadd, Fsub, Fmul, Fdiv, Fneg, Fabs, Fcmp, Fcsel,
-    Scvtf, Ucvtf, Fcvtzs, Fcvtzu, FcvtToDouble, FcvtToSingle
+    FmovReg, FmovImm, FmovToGeneral, FmovFromGeneral, Fadd, Fsub, Fmul, Fdiv, Fneg, Fabs, Fsqrt, Fcmp, Fcsel,
+    Fmin, Fmax, FminNum, FmaxNum,
+    Scvtf, Ucvtf, Fcvtzs, Fcvtzu, FcvtToDouble, FcvtToSingle,
+    VectorMov, SimdOrr, SimdScvtf, SimdUcvtf
+}
+
+/// <summary>Which general-purpose register an instruction writes. SIMD and FP writes are not GPR writes.</summary>
+public static class A64Effects
+{
+    public static bool WritesGpr(A64Op op, int register)
+    {
+        if (register is < 0 or > 30)
+            return false;
+        if (op.Vector && op.Kind is A64Kind.Ldr or A64Kind.Ldp)
+            return false;
+        if (op.Kind is A64Kind.Bl or A64Kind.Blr)
+            return register <= 18;
+        return op.Kind switch
+        {
+            A64Kind.Ldr => op.Rt == register,
+            A64Kind.Ldp => op.Rt == register || op.Rt2 == register,
+            A64Kind.Str or A64Kind.Stp or A64Kind.Cbz or A64Kind.Cbnz or A64Kind.Tbz or A64Kind.Tbnz
+                or A64Kind.B or A64Kind.BCond or A64Kind.Ret or A64Kind.Nop or A64Kind.Fcmp
+                or A64Kind.FmovReg or A64Kind.FmovImm or A64Kind.FmovFromGeneral
+                or A64Kind.Fadd or A64Kind.Fsub or A64Kind.Fmul or A64Kind.Fdiv
+                or A64Kind.Fneg or A64Kind.Fabs or A64Kind.Fsqrt or A64Kind.Fcsel
+                or A64Kind.Fmin or A64Kind.Fmax or A64Kind.FminNum or A64Kind.FmaxNum
+                or A64Kind.Scvtf or A64Kind.Ucvtf or A64Kind.SimdScvtf or A64Kind.SimdUcvtf
+                or A64Kind.FcvtToDouble or A64Kind.FcvtToSingle
+                or A64Kind.VectorMov or A64Kind.SimdOrr => false,
+            A64Kind.FmovToGeneral or A64Kind.Fcvtzs or A64Kind.Fcvtzu => op.Rd == register,
+            // An undecoded instruction may still be a GPR write of its low 5 bits. Treating it as a write
+            // keeps a metadata-init guard from being dropped when the flag register's fate is unknown.
+            A64Kind.Unknown => true,
+            _ => op.Rd == register && op.Rd != 31
+        };
+    }
 }
 
 public enum A64Shift { Lsl = 0, Lsr = 1, Asr = 2, Ror = 3 }
