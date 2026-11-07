@@ -74,6 +74,7 @@ public static class Cpp2IlSession
         {
             var previous = LibLogger.Writer;
             LibLogger.Writer = new SilentLog();
+            var keep = false;
             try
             {
                 LibCpp2IlMain.Reset();
@@ -223,6 +224,7 @@ public static class Cpp2IlSession
                     }
                 }
 
+                keep = true;
                 return new EngineLoadResult
                 {
                     Loaded = true,
@@ -241,12 +243,25 @@ public static class Cpp2IlSession
             }
             finally
             {
-                LibCpp2IlMain.Binary = null;
-                LibCpp2IlMain.TheMetadata = null;
-                LibCpp2IlMain.Reset();
+                if (!keep)
+                    ReleaseUnlocked();
                 LibLogger.Writer = previous;
             }
         }
+    }
+
+    /// <summary>Drops the LibCpp2IL load kept alive so metadata slots can be resolved during lifting.</summary>
+    public static void Release()
+    {
+        lock (Gate)
+            ReleaseUnlocked();
+    }
+
+    private static void ReleaseUnlocked()
+    {
+        LibCpp2IlMain.Binary = null;
+        LibCpp2IlMain.TheMetadata = null;
+        LibCpp2IlMain.Reset();
     }
 
     private static int? IndexOf(LibCpp2IL.Metadata.Il2CppTypeDefinition? type) =>

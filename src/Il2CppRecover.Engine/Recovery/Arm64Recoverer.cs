@@ -130,6 +130,7 @@ public static class Arm64Recoverer
         {
             if (diagnostics.Count == 0)
                 diagnostics.Add("The structured lifter produced no body.");
+            diagnostics.AddRange(outcome.Evidence.Select(e => "Evidence: " + e));
             if (thunkChain is not null)
                 diagnostics.Insert(0, "Kind: thunk " + thunkChain);
             var status = Classify(diagnostics);

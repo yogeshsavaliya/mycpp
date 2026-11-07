@@ -109,22 +109,29 @@ public static class AnalysisPipeline
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        var methods = BuildMethods(catalog, engine, binaryBytes, elf, options, cancellationToken, progress, trace, pace, out var tables);
-        var report = RecoveryReportBuilder.Build(methods, options.GameplayFirst ? "gameplay-first" : "full", tables?.SameNameGroups ?? 0);
-        if (tables is not null)
-            File.WriteAllText(Path.Combine(outputDirectory, "type-identity.json"), JsonDefaults.Serialize(TypeIdentitySummary(tables)));
-        Log("Writing output");
-        OutputWriter.Write(outputDirectory, inventory, catalog, methods, report, logs, engine?.Diagnostic, engine?.Types, engine?.Methods);
-        return new AnalysisOutput
+        try
         {
-            Inventory = inventory,
-            Catalog = catalog,
-            Methods = methods,
-            Report = report,
-            OutputDirectory = Path.GetFullPath(outputDirectory),
-            Logs = logs,
-            EngineLoadDiagnostic = engine?.Diagnostic
-        };
+            var methods = BuildMethods(catalog, engine, binaryBytes, elf, options, cancellationToken, progress, trace, pace, out var tables);
+            var report = RecoveryReportBuilder.Build(methods, options.GameplayFirst ? "gameplay-first" : "full", tables?.SameNameGroups ?? 0);
+            if (tables is not null)
+                File.WriteAllText(Path.Combine(outputDirectory, "type-identity.json"), JsonDefaults.Serialize(TypeIdentitySummary(tables)));
+            Log("Writing output");
+            OutputWriter.Write(outputDirectory, inventory, catalog, methods, report, logs, engine?.Diagnostic, engine?.Types, engine?.Methods);
+            return new AnalysisOutput
+            {
+                Inventory = inventory,
+                Catalog = catalog,
+                Methods = methods,
+                Report = report,
+                OutputDirectory = Path.GetFullPath(outputDirectory),
+                Logs = logs,
+                EngineLoadDiagnostic = engine?.Diagnostic
+            };
+        }
+        finally
+        {
+            Cpp2IlSession.Release();
+        }
     }
 
     private static List<MethodRecord> BuildMethods(MetadataCatalog? catalog, EngineLoadResult? engine, byte[]? binary, ElfImage? elf, AnalysisOptions options, CancellationToken cancellationToken, IProgress<ProgressEvent>? progress, AnalysisTrace trace, Pace pace, out TypeTables? tables)
@@ -518,6 +525,7 @@ public static class AnalysisPipeline
                         TypeFieldsById = ctx.TypeFieldsById,
                         LayoutNotes = ctx.LayoutNotes,
                         RuntimeHelpers = ctx.Helpers,
+                        ResolveMetadataSlot = MetadataSlotResolver.TryResolve,
                         Budget = options.Budget,
                         CancellationToken = cancellationToken,
                         Cache = ctx.Cache,
