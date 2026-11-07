@@ -24,12 +24,15 @@ internal static class MetadataInitGuard
             var term = block.Term;
             if (block.Kind != StructuredLifter.TermKind.Cond || term is null)
                 continue;
-            if (term.Kind is not (A64Kind.Tbnz or A64Kind.Tbz) || term.Imm != 0)
+            var bitTest = term.Kind is (A64Kind.Tbnz or A64Kind.Tbz) && term.Imm == 0;
+            var wholeByte = term.Kind is (A64Kind.Cbnz or A64Kind.Cbz) && !term.Is64;
+            if (!bitTest && !wholeByte)
                 continue;
             if (!TryFindGuardLoad(block, term.Rd, out var load, out var baseReg, out var offset))
                 continue;
-            var initialized = term.Kind == A64Kind.Tbnz ? block.Taken : block.Next;
-            var coldAddress = term.Kind == A64Kind.Tbnz ? block.Next : block.Taken;
+            var initializedWhenSet = term.Kind is A64Kind.Tbnz or A64Kind.Cbnz;
+            var initialized = initializedWhenSet ? block.Taken : block.Next;
+            var coldAddress = initializedWhenSet ? block.Next : block.Taken;
             if (!blockAt.TryGetValue(coldAddress, out var cold) || predecessors.GetValueOrDefault(coldAddress) != 1)
                 continue;
             if (!IsInitCold(cold, initialized, baseReg, offset))
@@ -42,8 +45,16 @@ internal static class MetadataInitGuard
             block.Taken = 0;
             block.Succ.Clear();
             block.Succ.Add(initialized);
+            // The cold block's only predecessor was this guard. Leave it in the list, but drop its
+            // edge into the initialized code so a later merge does not treat the unreachable path
+            // as a second predecessor with empty registers.
+            cold.Succ.Clear();
+            cold.Next = 0;
+            cold.Taken = 0;
+            cold.Kind = StructuredLifter.TermKind.Trap;
             removed++;
-            evidence.Add($"0x{term.Address:X}: elided IL2CPP lazy runtime-metadata init. The flag byte, the bit-0 branch, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.");
+            var test = bitTest ? "bit-0 test" : "whole-byte test";
+            evidence.Add($"0x{term.Address:X}: elided IL2CPP lazy runtime-metadata init. The flag byte, the {test}, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.");
         }
         return removed;
     }
@@ -57,7 +68,7 @@ internal static class MetadataInitGuard
         for (var i = block.Body.Count - 1; i >= 0; i--)
         {
             var op = block.Body[i];
-            if (!Writes(op, register))
+            if (!A64Effects.WritesGpr(op, register))
                 continue;
             if (op.Kind == A64Kind.Ldr && op.Size == 1 && !op.SignedLoad && op.Index == A64Index.Offset && op.Rt == register)
             {
@@ -80,14 +91,14 @@ internal static class MetadataInitGuard
                 adrp = i;
                 break;
             }
-            if (Writes(op, baseReg))
+            if (A64Effects.WritesGpr(op, baseReg))
                 return false;
         }
         if (adrp < 0)
             return false;
         for (var i = found + 1; i < block.Body.Count; i++)
         {
-            if (Writes(block.Body[i], baseReg) || Writes(block.Body[i], register))
+            if (A64Effects.WritesGpr(block.Body[i], baseReg) || A64Effects.WritesGpr(block.Body[i], register))
                 return false;
         }
         return true;
@@ -102,6 +113,8 @@ internal static class MetadataInitGuard
         if (cold.Kind is not (StructuredLifter.TermKind.Fall or StructuredLifter.TermKind.Jump))
             return false;
         var ops = cold.Body;
+        if (IsRegisterEntryCold(ops, baseReg, offset))
+            return true;
         if (ops.Count < 5 || (ops.Count - 2) % 3 != 0)
             return false;
         var groups = (ops.Count - 2) / 3;
@@ -130,16 +143,35 @@ internal static class MetadataInitGuard
             && store.Imm == offset;
     }
 
-    private static bool Writes(A64Op op, int register)
+    /// <summary>
+    /// A later guard for an entry already held in a register:
+    /// <c>mov x0, Xn; bl; ldr x0, [Xn]; mov w, #1; strb flag</c>.
+    /// The call is the metadata-init helper, so <c>Xn</c> is the usage pointer it receives.
+    /// </summary>
+    private static bool IsRegisterEntryCold(List<A64Op> ops, int baseReg, long offset)
     {
-        if (op.Kind is A64Kind.Bl or A64Kind.Blr)
-            return register <= 18;
-        return op.Kind switch
-        {
-            A64Kind.Ldr => op.Rt == register,
-            A64Kind.Ldp => op.Rt == register || op.Rt2 == register,
-            A64Kind.Str or A64Kind.Stp or A64Kind.Cbz or A64Kind.Cbnz or A64Kind.Tbz or A64Kind.Tbnz or A64Kind.B or A64Kind.BCond or A64Kind.Ret or A64Kind.Nop => false,
-            _ => op.Rd == register
-        };
+        if (ops.Count != 5)
+            return false;
+        var copy = ops[0];
+        var call = ops[1];
+        var reload = ops[2];
+        var one = ops[3];
+        var store = ops[4];
+        // mov X0, Xn is ORR X0, XZR, Xn.
+        if (copy.Kind != A64Kind.Orr || !copy.Is64 || copy.Rd != 0 || copy.Rn != 31 || copy.Rm is 31 || copy.Rm == baseReg || copy.InvertRm || copy.ShiftAmount != 0)
+            return false;
+        if (call.Kind != A64Kind.Bl)
+            return false;
+        if (reload.Kind != A64Kind.Ldr || reload.Size != 8 || reload.SignedLoad || reload.Index != A64Index.Offset || reload.Rn != copy.Rm || reload.Rt != 0)
+            return false;
+        if (one.Kind != A64Kind.Movz || one.Imm != 1 || one.ShiftAmount != 0 || one.Rd == baseReg)
+            return false;
+        return store.Kind == A64Kind.Str
+            && store.Size == 1
+            && !store.SignedLoad
+            && store.Index == A64Index.Offset
+            && store.Rn == baseReg
+            && store.Rt == one.Rd
+            && store.Imm == offset;
     }
 }

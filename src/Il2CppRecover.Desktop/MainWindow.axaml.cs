@@ -58,6 +58,7 @@ public partial class MainWindow : Window
                 "Input SHA-256: " + _output.Inventory.InputSha256,
                 "Methods in metadata: " + _output.Report.Counts.MethodsInMetadata,
                 "Fully recovered unique bodies: " + _output.Report.Counts.FullyRecoveredUniqueBodies,
+                "Feature-complete bodies: " + string.Join(", ", _output.Report.Breakdown.Select(stage => stage.Scope + " " + stage.FeatureComplete)),
                 "Metadata only: " + _output.Report.Counts.MetadataOnly,
                 "Placeholders: " + _output.Report.Counts.PlaceholderBodies,
                 _output.EngineLoadDiagnostic ?? ""

@@ -203,6 +203,8 @@ public sealed class MethodRecord
     public string? CandidateCSharp { get; init; }
     public IReadOnlyList<ProvenanceLink> Provenance { get; init; } = [];
     public int SharedImplementationCount { get; set; } = 1;
+    /// <summary>True when this recovered body and every gameplay method it calls directly are recovered. False when the body or a gameplay callee is not. Null on records built outside analysis.</summary>
+    public bool? FeatureComplete { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? InternalStack { get; init; }
 }
@@ -243,6 +245,8 @@ public sealed class StageBreakdown
     public int EmittedWithoutPlaceholder { get; init; }
     public int PassedCompilationCheck { get; init; }
     public int PassedBehaviouralCheck { get; init; }
+    /// <summary>Recovered methods whose direct and tail calls to gameplay methods are recovered too. Framework calls are external.</summary>
+    public int FeatureComplete { get; init; }
     public IReadOnlyDictionary<string, int> UnrecoveredByReason { get; init; } = new Dictionary<string, int>();
 }
 

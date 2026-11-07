@@ -1,0 +1,19 @@
+status: recoveredUnvalidated
+featureComplete: True
+address: 0xD6ECDC
+name: CameraController::.ctor
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6ECE8: a 32-bit general-register store into smoothAmount is the IEEE bit pattern, not a numeric cast.
+Evidence: 0xD6ECEC: call to UnityEngine.MonoBehaviour::.ctor on this inside a constructor is the base constructor initializer.
+Evidence: 0xD6ECEC: unconditional branch to known method entry 0x197BA6C (MonoBehaviour..ctor) with the frame restored is a tail call.
+
+csharp:
+//@ctor-init base()
+// Native order: the field stores below ran before the base constructor (C# field initializers run in that position).
+unchecked
+{
+    this.smoothAmount = 0.3f;
+    return;
+}

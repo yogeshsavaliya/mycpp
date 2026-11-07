@@ -4,6 +4,7 @@ public static class RecoveryReportBuilder
 {
     public static RecoveryReport Build(IReadOnlyList<MethodRecord> methods, string bodyScope = "full", int sameNameTypeGroups = 0)
     {
+        AnnotateFeatureComplete(methods);
         var unique = methods
             .Where(m => !string.IsNullOrEmpty(m.NativeVirtualAddress))
             .GroupBy(m => m.NativeVirtualAddress)
@@ -58,7 +59,8 @@ public static class RecoveryReportBuilder
             [
                 "Cpp2IL " + ToolInfo.Cpp2IlTag + " (" + ToolInfo.Cpp2IlCommit + ") is used only to load metadata and locate method pointers. Cpp2IL.Core analysis is not invoked. Method bodies come from the structured ARM64 lifter.",
                 "A body is emitted only when recursive descent from the method entry is closed (RET, a tail call to a known method entry, or a call with noreturn evidence) and every instruction on every path was lifted. Otherwise the method keeps a placeholder. A candidate may be stored in methods.json and is not written as the method body.",
-                "Not lifted: loops other than one legacy while shape, switches and jump tables, virtual and interface calls, delegates, generic method instances, struct parameters and returns, enum-typed values in bodies, static fields, array element access, string literals, object allocation, exceptions other than an identified null-reference raise, and division.",
+                "Not lifted: loops other than one legacy while shape, switches and jump tables, virtual and interface calls, delegates other than a recognised method pointer plus target, generic calls whose method slot does not name the type arguments, struct values other than Vector2, Vector3, Vector4, Quaternion and Color, enum-typed values in bodies, thread-static fields, array element access, and exceptions other than an identified null-reference raise or a helper that reaches __cxa_throw with a typed object in x0.",
+                "A recovered method is feature-complete only when its body and every direct or tail call to a gameplay method are recovered. Framework and Unity API calls are external. A wrapper such as LateUpdate stays dependency-incomplete while a gameplay callee is unrecovered.",
                 "The null-reference raise helper is identified from call-site structure across the binary. When that evidence is insufficient, bodies that reach it stay candidates.",
                 "RecoveredUnvalidated means the lifted shape compiled from closed control flow. It has not been compiled against Unity assemblies or compared with the game's behaviour unless a later pass says so.",
                 "Scene, prefab, asset, and script-reference restoration are not implemented. The C# export is an analysis view, not a Unity project.",
@@ -76,6 +78,61 @@ public static class RecoveryReportBuilder
 
     public static bool IsFramework(MethodRecord method) => IsFrameworkAssembly(method.Assembly);
 
+    private static readonly System.Text.RegularExpressions.Regex DirectCall = new(@"(?<![A-Za-z.])(?:BL|B)\s+(0x[0-9A-Fa-f]+)", System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static void AnnotateFeatureComplete(IReadOnlyList<MethodRecord> methods)
+    {
+        var byAddress = new Dictionary<ulong, List<MethodRecord>>();
+        foreach (var method in methods)
+        {
+            if (!TryAddress(method.NativeVirtualAddress, out var address))
+                continue;
+            if (!byAddress.TryGetValue(address, out var list))
+                byAddress[address] = list = [];
+            list.Add(method);
+        }
+        foreach (var method in methods)
+        {
+            var recovered = IsRecovered(method);
+            if (!recovered)
+            {
+                method.FeatureComplete = false;
+                continue;
+            }
+            var complete = true;
+            foreach (var instruction in method.Instructions)
+            {
+                foreach (System.Text.RegularExpressions.Match match in DirectCall.Matches(instruction.Text))
+                {
+                    if (!TryAddress(match.Groups[1].Value, out var target) || !byAddress.TryGetValue(target, out var hits))
+                        continue;
+                    if (!hits.Any(hit => !IsFramework(hit)))
+                        continue;
+                    if (!hits.Any(IsRecovered))
+                    {
+                        complete = false;
+                        break;
+                    }
+                }
+                if (!complete)
+                    break;
+            }
+            method.FeatureComplete = complete;
+        }
+    }
+
+    private static bool IsRecovered(MethodRecord method) =>
+        method.Status == MethodRecoveryStatus.RecoveredUnvalidated && !method.CSharpIsPlaceholder && method.CSharp is not null;
+
+    private static bool TryAddress(string? text, out ulong address)
+    {
+        address = 0;
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        var hex = text.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? text[2..] : text;
+        return ulong.TryParse(hex, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out address);
+    }
+
     private static StageBreakdown Breakdown(string scope, List<MethodRecord> methods) => new()
     {
         Scope = scope,
@@ -87,6 +144,7 @@ public static class RecoveryReportBuilder
         EmittedWithoutPlaceholder = methods.Count(m => m.CSharp is not null && !m.CSharpIsPlaceholder),
         PassedCompilationCheck = methods.Count(m => m.Compilation == "Compiled"),
         PassedBehaviouralCheck = methods.Count(m => m.Behaviour == "CheckedOnFixture"),
+        FeatureComplete = methods.Count(m => m.FeatureComplete == true),
         UnrecoveredByReason = methods
             .Where(m => m.CSharp is null || m.CSharpIsPlaceholder)
             .GroupBy(Reason)

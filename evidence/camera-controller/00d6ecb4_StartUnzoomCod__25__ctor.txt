@@ -1,0 +1,16 @@
+status: recoveredUnvalidated
+featureComplete: True
+address: 0xD6ECB4
+name: <StartUnzoomCo>d__25::.ctor
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6ECC8: call to System.Object::.ctor on this inside a constructor is the base constructor initializer.
+
+csharp:
+//@ctor-init base()
+unchecked
+{
+    this.__1__state = __1__state;
+    return;
+}

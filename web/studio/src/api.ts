@@ -64,6 +64,7 @@ export type MethodSummary = {
   statusLabel: string;
   placeholder: boolean;
   isStatic: boolean;
+  featureComplete?: boolean | null;
 };
 
 export type MethodDetail = {

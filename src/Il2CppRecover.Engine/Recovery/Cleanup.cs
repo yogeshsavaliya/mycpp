@@ -180,6 +180,7 @@ public static class Cleanup
         ExpressionStmt x => [x.Value],
         IfStmt i => [i.Condition],
         WhileStmt w => [w.Condition],
+        ThrowStmt { Value: not null } thrown => [thrown.Value],
         CtorInitializerStmt c => c.Args,
         _ => []
     };
@@ -289,6 +290,7 @@ public static class Cleanup
                 StoreFieldStmt { Instance: null or ThisExpr or LocalExpr, Value: LocalExpr } sf => sf.Instance is not LocalExpr || !HasCall(sf.Instance),
                 IfStmt { Condition: BinaryExpr { Left: LocalExpr, Right: ConstExpr or NullExpr } } => true,
                 IfStmt { Condition: LocalExpr } => true,
+                ThrowStmt { Value: LocalExpr } => true,
                 _ => false
             };
         }
@@ -321,6 +323,7 @@ public static class Cleanup
             StoreFieldStmt sf => sf with { Instance = sf.Instance is null ? null : R(sf.Instance), Value = R(sf.Value) },
             ExpressionStmt x => x with { Value = R(x.Value) },
             IfStmt i => i with { Condition = R(i.Condition) },
+            ThrowStmt { Value: not null } thrown => thrown with { Value = R(thrown.Value) },
             CtorInitializerStmt c => c with { Args = c.Args.Select(R).ToList() },
             _ => s
         };

@@ -127,7 +127,9 @@ public class TypeExportTests
         ], "UnityEngine.MonoBehaviour");
         Assert.Contains("public class Ticker : UnityEngine.MonoBehaviour", source);
         Assert.Contains("public Ticker(int value) // metadata method name: .ctor", source);
-        Assert.Contains("private virtual System.Collections.IEnumerator Run()", source);
+        Assert.Contains("private System.Collections.IEnumerator Run()", source);
+        Assert.DoesNotContain("private virtual", source);
+        Assert.Contains("private method that is also virtual", source);
         Assert.DoesNotContain("int Run", source);
         Assert.DoesNotContain("_ctor", source);
     }

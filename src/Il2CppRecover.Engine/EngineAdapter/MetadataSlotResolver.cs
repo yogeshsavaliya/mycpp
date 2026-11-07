@@ -1,5 +1,7 @@
 using Il2CppRecover.Recovery;
 using LibCpp2IL;
+using LibCpp2IL.Metadata;
+using LibCpp2IL.Reflection;
 
 namespace Il2CppRecover.EngineAdapter;
 
@@ -60,6 +62,45 @@ public static class MetadataSlotResolver
         }
         if (string.IsNullOrWhiteSpace(display))
             return null;
-        return new MetadataSlot(kind.Value, display, valueAtAddress);
+        int? index = null;
+        string? literal = null;
+        string? member = null;
+        IReadOnlyList<string>? generic = null;
+        switch (usage.Value)
+        {
+            case string text:
+                literal = text;
+                break;
+            case Il2CppTypeDefinition definition when definition.TypeIndex.IsNonNull:
+                index = definition.TypeIndex.Value;
+                break;
+            case Il2CppTypeReflectionData data when data.isType && !data.isGenericType && data.baseType is { TypeIndex.IsNonNull: true } definition:
+                index = definition.TypeIndex.Value;
+                break;
+            case Il2CppMethodDefinition method:
+                member = method.Name;
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(method.HumanReadableSignature))
+                        display = method.HumanReadableSignature;
+                }
+                catch (Exception ex)
+                {
+                    _ = ex;
+                }
+                break;
+            case Cpp2IlMethodRef method:
+                generic = method.MethodGenericParams?.Select(param => param?.ToString() ?? "").Where(text => text.Length > 0).ToArray();
+                try
+                {
+                    member = method.BaseMethod?.Name;
+                }
+                catch (Exception ex)
+                {
+                    _ = ex;
+                }
+                break;
+        }
+        return new MetadataSlot(kind.Value, display, valueAtAddress, index, literal, generic, member);
     }
 }

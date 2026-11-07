@@ -1,0 +1,62 @@
+status: recoveredUnvalidated
+featureComplete: True
+address: 0xD6EE68
+name: <StartUnzoomCo>d__25::System.Collections.IEnumerator.MoveNext
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6EE80: elided IL2CPP lazy runtime-metadata init. The flag byte, the bit-0 test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.
+Evidence: 0xD6EED8: address 0x1C7AB80 is a metadata Type slot (SnakeWarzOnline.CameraController).
+Evidence: 0xD6EF08: load of resolved metadata Type SnakeWarzOnline.CameraController.
+Evidence: 0xD6EF0C: pair access split into from at 0x20 and to at 0x24.
+Evidence: 0xD6EF2C: load of Il2CppClass.static_fields at +0xB8 for SnakeWarzOnline.CameraController.
+Evidence: 0xD6EF44: static field SnakeWarzOnline.CameraController::currentUnzoomValue at static offset 0x8.
+Evidence: 0xD6EEB0: a 32-bit general-register store into <t>5__2 is the IEEE bit pattern, not a numeric cast.
+
+csharp:
+unchecked
+{
+    int t1 = this.__1__state;
+    int mx0_12 = default;
+    if ((t1 == 1))
+    {
+        float t2 = this._t_5__2;
+        this.__1__state = -1;
+        int mx0_6 = default;
+        if ((!(t2 < 1f)))
+        {
+            mx0_6 = 0;
+        }
+        else
+        {
+            float t3 = UnityEngine.Time.get_deltaTime();
+            this._t_5__2 = (t2 + (t3 * 0.5f));
+            SnakeWarzOnline.CameraController.currentUnzoomValue = ((this.to * ((((!((t2 + (t3 * 0.5f)) < 0f)) ? (float.IsNaN((t2 + (t3 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((t2 + (t3 * 0.5f)) < 1f || ((t2 + (t3 * 0.5f)) == 1f && float.IsNegative((t2 + (t3 * 0.5f))))) ? (t2 + (t3 * 0.5f)) : 1f) : 0f) * (((!((t2 + (t3 * 0.5f)) < 0f)) ? (float.IsNaN((t2 + (t3 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((t2 + (t3 * 0.5f)) < 1f || ((t2 + (t3 * 0.5f)) == 1f && float.IsNegative((t2 + (t3 * 0.5f))))) ? (t2 + (t3 * 0.5f)) : 1f) : 0f) * 3f)) - (((!((t2 + (t3 * 0.5f)) < 0f)) ? (float.IsNaN((t2 + (t3 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((t2 + (t3 * 0.5f)) < 1f || ((t2 + (t3 * 0.5f)) == 1f && float.IsNegative((t2 + (t3 * 0.5f))))) ? (t2 + (t3 * 0.5f)) : 1f) : 0f) * (((!((t2 + (t3 * 0.5f)) < 0f)) ? (float.IsNaN((t2 + (t3 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((t2 + (t3 * 0.5f)) < 1f || ((t2 + (t3 * 0.5f)) == 1f && float.IsNegative((t2 + (t3 * 0.5f))))) ? (t2 + (t3 * 0.5f)) : 1f) : 0f) * (((!((t2 + (t3 * 0.5f)) < 0f)) ? (float.IsNaN((t2 + (t3 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((t2 + (t3 * 0.5f)) < 1f || ((t2 + (t3 * 0.5f)) == 1f && float.IsNegative((t2 + (t3 * 0.5f))))) ? (t2 + (t3 * 0.5f)) : 1f) : 0f) + ((!((t2 + (t3 * 0.5f)) < 0f)) ? (float.IsNaN((t2 + (t3 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((t2 + (t3 * 0.5f)) < 1f || ((t2 + (t3 * 0.5f)) == 1f && float.IsNegative((t2 + (t3 * 0.5f))))) ? (t2 + (t3 * 0.5f)) : 1f) : 0f)))))) + (this.from * (1f - ((((!((t2 + (t3 * 0.5f)) < 0f)) ? (float.IsNaN((t2 + (t3 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((t2 + (t3 * 0.5f)) < 1f || ((t2 + (t3 * 0.5f)) == 1f && float.IsNegative((t2 + (t3 * 0.5f))))) ? (t2 + (t3 * 0.5f)) : 1f) : 0f) * (((!((t2 + (t3 * 0.5f)) < 0f)) ? (float.IsNaN((t2 + (t3 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((t2 + (t3 * 0.5f)) < 1f || ((t2 + (t3 * 0.5f)) == 1f && float.IsNegative((t2 + (t3 * 0.5f))))) ? (t2 + (t3 * 0.5f)) : 1f) : 0f) * 3f)) - (((!((t2 + (t3 * 0.5f)) < 0f)) ? (float.IsNaN((t2 + (t3 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((t2 + (t3 * 0.5f)) < 1f || ((t2 + (t3 * 0.5f)) == 1f && float.IsNegative((t2 + (t3 * 0.5f))))) ? (t2 + (t3 * 0.5f)) : 1f) : 0f) * (((!((t2 + (t3 * 0.5f)) < 0f)) ? (float.IsNaN((t2 + (t3 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((t2 + (t3 * 0.5f)) < 1f || ((t2 + (t3 * 0.5f)) == 1f && float.IsNegative((t2 + (t3 * 0.5f))))) ? (t2 + (t3 * 0.5f)) : 1f) : 0f) * (((!((t2 + (t3 * 0.5f)) < 0f)) ? (float.IsNaN((t2 + (t3 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((t2 + (t3 * 0.5f)) < 1f || ((t2 + (t3 * 0.5f)) == 1f && float.IsNegative((t2 + (t3 * 0.5f))))) ? (t2 + (t3 * 0.5f)) : 1f) : 0f) + ((!((t2 + (t3 * 0.5f)) < 0f)) ? (float.IsNaN((t2 + (t3 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((t2 + (t3 * 0.5f)) < 1f || ((t2 + (t3 * 0.5f)) == 1f && float.IsNegative((t2 + (t3 * 0.5f))))) ? (t2 + (t3 * 0.5f)) : 1f) : 0f))))))));
+            this.__2__current = null;
+            this.__1__state = 1;
+            mx0_6 = 1;
+        }
+        mx0_12 = mx0_6;
+    }
+    else
+    {
+        int mx0_11 = default;
+        if ((t1 != 0))
+        {
+            mx0_11 = 0;
+        }
+        else
+        {
+            this._t_5__2 = 0f;
+            this.__1__state = -1;
+            float t8 = UnityEngine.Time.get_deltaTime();
+            this._t_5__2 = (0f + (t8 * 0.5f));
+            SnakeWarzOnline.CameraController.currentUnzoomValue = ((this.to * ((((!((0f + (t8 * 0.5f)) < 0f)) ? (float.IsNaN((0f + (t8 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((0f + (t8 * 0.5f)) < 1f || ((0f + (t8 * 0.5f)) == 1f && float.IsNegative((0f + (t8 * 0.5f))))) ? (0f + (t8 * 0.5f)) : 1f) : 0f) * (((!((0f + (t8 * 0.5f)) < 0f)) ? (float.IsNaN((0f + (t8 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((0f + (t8 * 0.5f)) < 1f || ((0f + (t8 * 0.5f)) == 1f && float.IsNegative((0f + (t8 * 0.5f))))) ? (0f + (t8 * 0.5f)) : 1f) : 0f) * 3f)) - (((!((0f + (t8 * 0.5f)) < 0f)) ? (float.IsNaN((0f + (t8 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((0f + (t8 * 0.5f)) < 1f || ((0f + (t8 * 0.5f)) == 1f && float.IsNegative((0f + (t8 * 0.5f))))) ? (0f + (t8 * 0.5f)) : 1f) : 0f) * (((!((0f + (t8 * 0.5f)) < 0f)) ? (float.IsNaN((0f + (t8 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((0f + (t8 * 0.5f)) < 1f || ((0f + (t8 * 0.5f)) == 1f && float.IsNegative((0f + (t8 * 0.5f))))) ? (0f + (t8 * 0.5f)) : 1f) : 0f) * (((!((0f + (t8 * 0.5f)) < 0f)) ? (float.IsNaN((0f + (t8 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((0f + (t8 * 0.5f)) < 1f || ((0f + (t8 * 0.5f)) == 1f && float.IsNegative((0f + (t8 * 0.5f))))) ? (0f + (t8 * 0.5f)) : 1f) : 0f) + ((!((0f + (t8 * 0.5f)) < 0f)) ? (float.IsNaN((0f + (t8 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((0f + (t8 * 0.5f)) < 1f || ((0f + (t8 * 0.5f)) == 1f && float.IsNegative((0f + (t8 * 0.5f))))) ? (0f + (t8 * 0.5f)) : 1f) : 0f)))))) + (this.from * (1f - ((((!((0f + (t8 * 0.5f)) < 0f)) ? (float.IsNaN((0f + (t8 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((0f + (t8 * 0.5f)) < 1f || ((0f + (t8 * 0.5f)) == 1f && float.IsNegative((0f + (t8 * 0.5f))))) ? (0f + (t8 * 0.5f)) : 1f) : 0f) * (((!((0f + (t8 * 0.5f)) < 0f)) ? (float.IsNaN((0f + (t8 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((0f + (t8 * 0.5f)) < 1f || ((0f + (t8 * 0.5f)) == 1f && float.IsNegative((0f + (t8 * 0.5f))))) ? (0f + (t8 * 0.5f)) : 1f) : 0f) * 3f)) - (((!((0f + (t8 * 0.5f)) < 0f)) ? (float.IsNaN((0f + (t8 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((0f + (t8 * 0.5f)) < 1f || ((0f + (t8 * 0.5f)) == 1f && float.IsNegative((0f + (t8 * 0.5f))))) ? (0f + (t8 * 0.5f)) : 1f) : 0f) * (((!((0f + (t8 * 0.5f)) < 0f)) ? (float.IsNaN((0f + (t8 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((0f + (t8 * 0.5f)) < 1f || ((0f + (t8 * 0.5f)) == 1f && float.IsNegative((0f + (t8 * 0.5f))))) ? (0f + (t8 * 0.5f)) : 1f) : 0f) * (((!((0f + (t8 * 0.5f)) < 0f)) ? (float.IsNaN((0f + (t8 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((0f + (t8 * 0.5f)) < 1f || ((0f + (t8 * 0.5f)) == 1f && float.IsNegative((0f + (t8 * 0.5f))))) ? (0f + (t8 * 0.5f)) : 1f) : 0f) + ((!((0f + (t8 * 0.5f)) < 0f)) ? (float.IsNaN((0f + (t8 * 0.5f))) || float.IsNaN(1f) ? float.NaN : ((0f + (t8 * 0.5f)) < 1f || ((0f + (t8 * 0.5f)) == 1f && float.IsNegative((0f + (t8 * 0.5f))))) ? (0f + (t8 * 0.5f)) : 1f) : 0f))))))));
+            this.__2__current = null;
+            this.__1__state = 1;
+            mx0_11 = 1;
+        }
+        mx0_12 = mx0_11;
+    }
+    return (mx0_12 != 0);
+}

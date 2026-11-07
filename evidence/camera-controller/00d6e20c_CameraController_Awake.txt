@@ -1,0 +1,40 @@
+status: recoveredUnvalidated
+featureComplete: True
+address: 0xD6E20C
+name: CameraController::Awake
+
+diagnostics:
+Evidence: Boundary: control flow closed. Every reachable path ends in RET, a tail call to a known method entry, or a call with noreturn evidence.
+Evidence: 0xD6E234: elided IL2CPP lazy runtime-metadata init. The flag byte, the bit-0 test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.
+Evidence: 0xD6E228: address 0x1C7AB80 is a metadata Type slot (SnakeWarzOnline.CameraController).
+Evidence: 0xD6E22C: address 0x1C7AF48 is a metadata Method slot (T UnityEngine.Component.GetComponent<UnityEngine.Camera>).
+Evidence: 0xD6E258: load of resolved metadata Type SnakeWarzOnline.CameraController.
+Evidence: 0xD6E260: load of Il2CppClass.static_fields at +0xB8 for SnakeWarzOnline.CameraController.
+Evidence: 0xD6E264: static field SnakeWarzOnline.CameraController::instance at static offset 0x0.
+Evidence: 0xD6E268: load of resolved metadata Method T UnityEngine.Component.GetComponent<UnityEngine.Camera>.
+Evidence: 0xD6E26C: method slot T UnityEngine.Component.GetComponent<UnityEngine.Camera> supplies <UnityEngine.Camera>. The hidden MethodInfo argument is not emitted.
+Evidence: 0xD6E2A4: call target 0xCA5EF0 raises System.NullReferenceException. The type name is a read-only string reached before __cxa_throw, and the call takes no exception object.
+Evidence: 0xD6E284: a 32-bit general-register store into additionalFov is the IEEE bit pattern, not a numeric cast.
+Evidence: 0xD6E288: load of resolved metadata Type SnakeWarzOnline.CameraController.
+Evidence: 0xD6E294: load of Il2CppClass.static_fields at +0xB8 for SnakeWarzOnline.CameraController.
+Evidence: 0xD6E298: a 32-bit general-register store into currentUnzoomValue is the IEEE bit pattern, not a numeric cast.
+Evidence: 0xD6E298: static field SnakeWarzOnline.CameraController::currentUnzoomValue at static offset 0x8.
+
+csharp:
+unchecked
+{
+    SnakeWarzOnline.CameraController.instance = this;
+    UnityEngine.Camera t1 = this.GetComponent<UnityEngine.Camera>();
+    this.myCamera = t1;
+    if ((t1 == null))
+    {
+        throw new System.NullReferenceException();
+    }
+    else
+    {
+        this.baseFov = t1.get_orthographicSize();
+        this.additionalFov = 0f;
+        SnakeWarzOnline.CameraController.currentUnzoomValue = 0f;
+        return;
+    }
+}

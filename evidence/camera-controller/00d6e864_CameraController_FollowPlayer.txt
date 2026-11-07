@@ -1,0 +1,19 @@
+status: unsupported
+featureComplete: False
+address: 0xD6E864
+name: CameraController::FollowPlayer
+
+diagnostics:
+0xD6E940: call to Mathf.SmoothDamp is not lifted: parameter currentVelocity: by-reference type 'System.Single&'.
+Evidence: 0xD6E888: elided IL2CPP lazy runtime-metadata init. The flag byte, the bit-0 test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag.
+Evidence: 0xD6E8AC: runtime class init of UnityEngine.Object. The cctor_finished word at klass+0xE0 and the following init call were replaced with an explicit class initializer. No field was invented for the word.
+Evidence: 0xD6E880: address 0x1C7AAD8 is a metadata Type slot (UnityEngine.Object).
+Evidence: 0xD6E8A0: load of resolved metadata Type UnityEngine.Object.
+Evidence: 0xD6EA10: call target 0xCA5EF0 raises System.NullReferenceException. The type name is a read-only string reached before __cxa_throw, and the call takes no exception object.
+Evidence: 0xD6E8E8: UnityEngine.Vector3 is returned in s0-s2 (AAPCS64 HFA).
+Evidence: 0xD6E908: UnityEngine.Vector3 is returned in s0-s2 (AAPCS64 HFA).
+
+csharp:
+// UNRECOVERED: status=Unsupported.
+// This throw is a compilation placeholder. It is not recovered method logic.
+throw new System.NotImplementedException("IL2CPP_RECOVER_UNRECOVERED: 0xD6E940: call to Mathf.SmoothDamp is not lifted: parameter currentVelocity: by-reference type 'System.Single&'. | Evidence: 0xD6E888: elided IL2CPP lazy runtime-metadata init. The flag byte, the bit-0 test, the slot loads into x0, their calls, and the store of 1 back to that flag were removed. No metadata entity was invented for the flag. | Evidence: 0xD6E8AC: runtime class init of UnityEngine.Object. The cctor_finished word at klass+0xE0 and the following init call were replaced with an explicit class initializer. No field was invented for the word. | Evidence: 0xD6E880: address 0x1C7AAD8 is a metadata Type slot (UnityEngine.Object). | Evidence: 0xD6E8A0: load of resolved metadata Type UnityEngine.Object. | Evidence: 0xD6EA10: call target 0xCA5EF0 raises System.NullReferenceException. The type name is a read-only string reached before __cxa_throw, and the call takes no exception object. | Evidence: 0xD6E8E8: UnityEngine.Vector3 is returned in s0-s2 (AAPCS64 HFA). | Evidence: 0xD6EA10: call target 0xCA5EF0 raises System.NullReferenceException. The type name is a read-only string reached before __cxa_throw, and the call takes no exception object. | Evidence: 0xD6EA10: call target 0xCA5EF0 raises System.NullReferenceException. The type name is a read-only string reached before __cxa_throw, and the call takes no exception object. | Evidence: 0xD6E908: UnityEngine.Vector3 is returned in s0-s2 (AAPCS64 HFA).");

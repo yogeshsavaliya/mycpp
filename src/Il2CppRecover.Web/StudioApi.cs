@@ -449,7 +449,8 @@ public static class StudioApi
         status = method.Status.ToString(),
         statusLabel = StatusLabel(method.Status),
         placeholder = method.CSharpIsPlaceholder,
-        isStatic = method.IsStatic
+        isStatic = method.IsStatic,
+        featureComplete = method.FeatureComplete
     };
 
     private static string StatusLabel(MethodRecoveryStatus status) => status switch
