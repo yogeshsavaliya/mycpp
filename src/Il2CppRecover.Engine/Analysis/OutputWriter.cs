@@ -5,7 +5,7 @@ namespace Il2CppRecover.Analysis;
 
 public static class OutputWriter
 {
-    public static void Write(string outputDirectory, InventoryResult inventory, MetadataCatalog? catalog, IReadOnlyList<MethodRecord> methods, RecoveryReport report, IReadOnlyList<string> logs, string? engineDiagnostic, IReadOnlyList<EngineTypeInfo>? types = null)
+    public static void Write(string outputDirectory, InventoryResult inventory, MetadataCatalog? catalog, IReadOnlyList<MethodRecord> methods, RecoveryReport report, IReadOnlyList<string> logs, string? engineDiagnostic, IReadOnlyList<EngineTypeInfo>? types = null, IReadOnlyList<EngineMethod>? engineMethods = null)
     {
         Directory.CreateDirectory(outputDirectory);
         File.WriteAllText(Path.Combine(outputDirectory, "inventory.json"), JsonDefaults.Serialize(inventory));
@@ -49,11 +49,12 @@ public static class OutputWriter
         Directory.CreateDirectory(codeDir);
         var catalogIndexes = new HashSet<int>(catalog?.Images.SelectMany(i => i.Types).Select(t => t.MetadataIndex) ?? []);
         if (catalog is not null)
-            WriteCatalogSources(codeDir, catalog, methods, types);
+            WriteCatalogSources(codeDir, catalog, methods, types, engineMethods);
         foreach (var group in methods.Where(m => m.TypeMetadataIndex is not int index || !catalogIndexes.Contains(index)).GroupBy(m => m.Assembly + "|" + m.Namespace + "|" + m.DeclaringType))
         {
             var first = group.First();
-            var facts = types?.FirstOrDefault(t => t.Image == first.Assembly && t.Namespace == first.Namespace && t.Name == first.DeclaringType);
+            var matches = (types ?? []).Where(t => t.Image == first.Assembly && t.Namespace == first.Namespace && t.Name == first.DeclaringType).ToList();
+            var facts = matches.Count == 1 ? matches[0] : null;
             var declarationFields = (facts?.Fields ?? []).Select(field => new FieldContract
             {
                 Name = field.Name,
@@ -78,7 +79,7 @@ public static class OutputWriter
                         IsVirtual = method.IsVirtual,
                         Access = string.IsNullOrWhiteSpace(method.Access) ? "unresolved" : method.Access,
                         DeclaredReturnType = string.IsNullOrWhiteSpace(method.ReturnTypeName) ? "unresolved" : method.ReturnTypeName,
-                        Parameters = DeclaredParameters(method),
+                        Parameters = DeclaredParameters(method, null, [], []),
                         Fields = bodies.Count == 0 ? declarationFields : []
                     },
                     method.Status == MethodRecoveryStatus.RecoveredUnvalidated && method.CSharp is not null
@@ -149,12 +150,23 @@ public static class OutputWriter
     }
 
     /// <summary>
-    /// One file per top-level catalog type. Nested types are declared inside the parent,
-    /// and types are keyed by metadata index so two nested types with the same simple name stay distinct.
+    /// One file per top-level catalog type. Nested types stay inside their parent.
+    /// Every metadata type is kept, including each assembly's &lt;Module&gt;, which is
+    /// written as a module section rather than as class &lt;Module&gt;.
+    /// A path shared by two type ids gets the id in the file name before anything is written.
     /// </summary>
-    private static void WriteCatalogSources(string codeDir, MetadataCatalog catalog, IReadOnlyList<MethodRecord> methods, IReadOnlyList<EngineTypeInfo>? types)
+    private static void WriteCatalogSources(string codeDir, MetadataCatalog catalog, IReadOnlyList<MethodRecord> methods, IReadOnlyList<EngineTypeInfo>? types, IReadOnlyList<EngineMethod>? nativeMethods)
     {
         var factsByIndex = IndexTypes(types ?? [], t => t.MetadataIndex, t => t.Image + " " + t.Namespace + "." + t.Name);
+        var engineMethods = IndexTypes((nativeMethods ?? []).Where(m => m.MetadataIndex >= 0), m => m.MetadataIndex, m => m.Image + " " + m.DeclaringType + "::" + m.Name);
+        var names = new Dictionary<string, List<(string Image, int Id)>>(StringComparer.Ordinal);
+        foreach (var type in types ?? [])
+        {
+            var key = string.IsNullOrEmpty(type.DisplayName) ? type.Name : type.DisplayName;
+            if (!names.TryGetValue(key, out var list))
+                names[key] = list = [];
+            list.Add((type.Image, type.MetadataIndex));
+        }
         var methodsByType = methods.Where(m => m.TypeMetadataIndex is int).GroupBy(m => m.TypeMetadataIndex!.Value).ToDictionary(g => g.Key, g => g.ToList());
         foreach (var image in catalog.Images)
         {
@@ -164,37 +176,53 @@ public static class OutputWriter
             {
                 factsByIndex.TryGetValue(type.MetadataIndex, out var facts);
                 methodsByType.TryGetValue(type.MetadataIndex, out var typeMethods);
-                declarations[type.MetadataIndex] = Declaration(type, facts, typeMethods ?? []);
+                declarations[type.MetadataIndex] = Declaration(type, facts, typeMethods ?? [], engineMethods, names);
             }
             foreach (var type in image.Types)
             {
+                if (type.Name == "<Module>")
+                    continue;
                 if (type.DeclaringTypeIndex is int parent && declarations.TryGetValue(parent, out var outer))
                     outer.Nested.Add(declarations[type.MetadataIndex]);
             }
+            var planned = new List<(CatalogType Type, string Directory, string Path)>();
             foreach (var type in image.Types)
             {
-                if (type.DeclaringTypeIndex is int parent && byIndex.ContainsKey(parent))
+                if (type.DeclaringTypeIndex is int parent && byIndex.ContainsKey(parent) && type.Name != "<Module>")
                     continue;
-                if (type.Name == "<Module>")
-                    continue;
-                var text = CSharpEmitter.EmitFile(type.Namespace, declarations[type.MetadataIndex]);
                 var directory = Path.Combine(codeDir, Sanitize(image.Name), string.IsNullOrEmpty(type.Namespace) ? "_" : Sanitize(type.Namespace));
-                Directory.CreateDirectory(directory);
-                var path = Path.Combine(directory, Sanitize(type.Name) + ".cs");
-                if (File.Exists(path))
-                    path = Path.Combine(directory, Sanitize(type.Name) + "_" + type.MetadataIndex + ".cs");
+                var stem = type.Name == "<Module>" ? "_Module_" + type.MetadataIndex : Sanitize(type.Name);
+                planned.Add((type, directory, Path.Combine(directory, stem + ".cs")));
+            }
+            var pathCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var item in planned)
+                pathCounts[item.Path] = pathCounts.TryGetValue(item.Path, out var count) ? count + 1 : 1;
+            foreach (var item in planned)
+            {
+                Directory.CreateDirectory(item.Directory);
+                var shared = pathCounts[item.Path] > 1;
+                var declaration = declarations[item.Type.MetadataIndex];
+                if (shared)
+                    declaration.DisambiguateName = true;
+                var path = shared
+                    ? Path.Combine(item.Directory, Sanitize(item.Type.Name) + "_" + item.Type.MetadataIndex + ".cs")
+                    : item.Path;
+                var text = item.Type.Name == "<Module>"
+                    ? CSharpEmitter.EmitModule(image.Name, declaration)
+                    : CSharpEmitter.EmitFile(item.Type.Namespace, declaration);
                 File.WriteAllText(path, text);
             }
         }
     }
 
-    private static CSharpEmitter.TypeDeclaration Declaration(CatalogType type, EngineTypeInfo? facts, List<MethodRecord> typeMethods)
+    private static CSharpEmitter.TypeDeclaration Declaration(CatalogType type, EngineTypeInfo? facts, List<MethodRecord> typeMethods, IReadOnlyDictionary<int, EngineMethod> engineMethods, Dictionary<string, List<(string Image, int Id)>> names)
     {
+        var aliases = new HashSet<string>(StringComparer.Ordinal);
         var fields = (facts?.Fields ?? []).Where(f => facts is not { IsEnum: true } || (!f.IsLiteral && f.Name != "value__")).Select(field => new FieldContract
         {
             Name = field.Name,
             Type = PrimitiveKind.Int32,
-            DeclaredType = field.Type,
+            DeclaredType = Present(field.Type, field.TypeReference, names, aliases),
             Access = field.Access,
             IsStatic = field.IsStatic,
             InstanceOffset = field.IsStatic ? null : field.Offset
@@ -208,7 +236,12 @@ public static class OutputWriter
             if (literals.Count > 0 && literals.All(f => f.ConstantValue is not null))
                 members = literals.Select(f => (f.Name, EnumLiteral(f.ConstantValue!))).ToList();
         }
-        var bodies = typeMethods.Select(method => (
+        var bodies = typeMethods.Select(method =>
+        {
+            EngineMethod? native = null;
+            if (method.MetadataMethodIndex is int methodIndex)
+                engineMethods.TryGetValue(methodIndex, out native);
+            return (
             new MethodContract
             {
                 Name = method.Name,
@@ -219,17 +252,21 @@ public static class OutputWriter
                 IsAbstract = method.MethodKind == MethodKind.Abstract,
                 IsVirtual = method.IsVirtual,
                 Access = string.IsNullOrWhiteSpace(method.Access) ? "unresolved" : method.Access,
-                DeclaredReturnType = string.IsNullOrWhiteSpace(method.ReturnTypeName) ? "unresolved" : method.ReturnTypeName,
-                Parameters = DeclaredParameters(method)
+                DeclaredReturnType = Present(string.IsNullOrWhiteSpace(method.ReturnTypeName) ? "unresolved" : method.ReturnTypeName, native?.ReturnTypeRef, names, aliases),
+                Parameters = DeclaredParameters(method, native, names, aliases)
             },
             method.CSharp ?? "// No C# was emitted for this method.",
-            method.CSharpIsPlaceholder || method.Status != MethodRecoveryStatus.RecoveredUnvalidated)).ToList();
+            method.CSharpIsPlaceholder || method.Status != MethodRecoveryStatus.RecoveredUnvalidated);
+        }).ToList();
         var baseType = facts?.BaseType;
         if (baseType is "System.Object" or "System.ValueType" or "System.Enum")
             baseType = null;
-        return new CSharpEmitter.TypeDeclaration
+        else if (baseType is not null)
+            baseType = Present(baseType, facts?.BaseTypeRef, names, aliases);
+        var declaration = new CSharpEmitter.TypeDeclaration
         {
             Name = type.Name,
+            TypeId = type.MetadataIndex,
             BaseType = baseType,
             IsValueType = facts?.IsValueType ?? type.IsValueType,
             IsEnum = facts?.IsEnum ?? type.IsEnum,
@@ -239,6 +276,38 @@ public static class OutputWriter
             Fields = fields,
             Methods = bodies
         };
+        foreach (var alias in aliases)
+            declaration.ExternAliases.Add(alias);
+        return declaration;
+    }
+
+    private static string Present(string display, TypeRef? reference, Dictionary<string, List<(string Image, int Id)>> names, HashSet<string> aliases)
+    {
+        if (string.IsNullOrWhiteSpace(display) || display == "unresolved" || !names.TryGetValue(display, out var hits) || hits.Count < 2)
+            return display;
+        var id = reference is { Kind: TypeRefKind.Definition or TypeRefKind.GenericInstance, DefinitionIndex: int value } ? value : (int?)null;
+        if (id is int known)
+        {
+            foreach (var hit in hits)
+            {
+                if (hit.Id != known)
+                    continue;
+                var alias = AssemblyAlias(hit.Image);
+                aliases.Add(alias);
+                return alias + "::" + display;
+            }
+        }
+        return "/* ambiguous across assemblies: " + string.Join(", ", hits.Select(hit => hit.Image + " index " + hit.Id)) + " */ object";
+    }
+
+    private static string AssemblyAlias(string image)
+    {
+        var stem = image.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? image[..^4] : image;
+        var chars = stem.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray();
+        var text = new string(chars);
+        if (text.Length == 0 || !char.IsLetter(text[0]))
+            text = "A" + text;
+        return text;
     }
 
     private static string EnumLiteral(object value) => value switch
@@ -247,7 +316,7 @@ public static class OutputWriter
         _ => value.ToString() ?? "0"
     };
 
-    private static IReadOnlyList<ParameterContract> DeclaredParameters(MethodRecord method)
+    private static IReadOnlyList<ParameterContract> DeclaredParameters(MethodRecord method, EngineMethod? native, Dictionary<string, List<(string Image, int Id)>> names, HashSet<string> aliases)
     {
         var count = Math.Max(method.ParameterNames.Count, method.ParameterTypeNames.Count);
         var list = new List<ParameterContract>(count);
@@ -259,11 +328,12 @@ public static class OutputWriter
             var typeName = i < method.ParameterTypeNames.Count && !string.IsNullOrWhiteSpace(method.ParameterTypeNames[i])
                 ? method.ParameterTypeNames[i]
                 : "unresolved";
+            var reference = native is not null && i < native.ParameterTypeRefs.Count ? native.ParameterTypeRefs[i] : null;
             list.Add(new ParameterContract
             {
                 Name = name,
                 Type = PrimitiveKind.Int32,
-                DeclaredType = typeName
+                DeclaredType = Present(typeName, reference, names, aliases)
             });
         }
         return list;

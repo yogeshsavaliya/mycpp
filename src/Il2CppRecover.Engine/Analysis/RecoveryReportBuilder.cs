@@ -2,7 +2,7 @@ namespace Il2CppRecover.Analysis;
 
 public static class RecoveryReportBuilder
 {
-    public static RecoveryReport Build(IReadOnlyList<MethodRecord> methods, string bodyScope = "full")
+    public static RecoveryReport Build(IReadOnlyList<MethodRecord> methods, string bodyScope = "full", int sameNameTypeGroups = 0)
     {
         var unique = methods
             .Where(m => !string.IsNullOrEmpty(m.NativeVirtualAddress))
@@ -47,6 +47,7 @@ public static class RecoveryReportBuilder
                 NotAnalyzed = methods.Count(m => m.Status == MethodRecoveryStatus.NotAnalyzed),
                 InternalErrors = internalErrors.Count,
                 SharedNativeAddresses = unique.Count(g => g.Count() > 1),
+                SameNameTypeGroups = sameNameTypeGroups,
                 CompilationChecked = methods.Count(m => m.Compilation == "Compiled"),
                 BehaviourCheckedOnFixtures = methods.Count(m => m.Behaviour == "CheckedOnFixture"),
                 Denominator = "FullyRecoveredUniqueBodies counts distinct native addresses whose lift status is RecoveredUnvalidated. Abstract methods, external methods, metadata-only methods, placeholders, and extra metadata rows that share one address are not added to that numerator."
@@ -117,6 +118,7 @@ public static class RecoveryReportBuilder
             ("Instance method of a value type", "value-type instance method"),
             ("value type", "struct parameter, return, or field type"),
             ("enum type", "enum-typed value"),
+            ("outside the lifter subset", "type outside the lifter subset"),
             ("not found in the loaded type table", "unknown parameter/return type"),
             ("not resolved from the native type table", "unresolved parameter/return type"),
             ("indirect call", "virtual/interface/delegate call"),

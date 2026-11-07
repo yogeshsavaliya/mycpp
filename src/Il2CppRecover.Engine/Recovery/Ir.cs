@@ -2,8 +2,10 @@ namespace Il2CppRecover.Recovery;
 
 public abstract record Expr(PrimitiveKind Type)
 {
-    /// <summary>Metadata type name of a reference-typed value, when known.</summary>
+    /// <summary>Metadata type name of a reference-typed value, when known. Display only.</summary>
     public string? RefType { get; init; }
+    /// <summary>Type-definition index of a reference-typed value, when the value is a definition or a generic instance.</summary>
+    public int? RefTypeId { get; init; }
     public virtual string Describe() => ToString() ?? Type.ToString();
 }
 
@@ -105,6 +107,7 @@ public sealed class ParameterContract
     public required string Name { get; init; }
     public required PrimitiveKind Type { get; init; }
     public string? DeclaredType { get; init; }
+    public int? DeclaredTypeId { get; init; }
 }
 
 public sealed class FieldContract
@@ -114,6 +117,9 @@ public sealed class FieldContract
     public bool IsStatic { get; init; }
     public string Access { get; init; } = "public";
     public string? DeclaredType { get; init; }
+    public int? DeclaredTypeId { get; init; }
+    public string? OwnerType { get; init; }
+    public int? OwnerTypeId { get; init; }
     public int? InstanceOffset { get; init; }
     public ulong? AbsoluteAddress { get; init; }
 }
@@ -131,6 +137,8 @@ public sealed class MethodContract
     public bool IsGeneric { get; init; }
     public PrimitiveKind ReturnType { get; init; }
     public string? DeclaredReturnType { get; init; }
+    public int? DeclaredReturnTypeId { get; init; }
+    public int? DeclaringTypeId { get; init; }
     public IReadOnlyList<ParameterContract> Parameters { get; init; } = [];
     public IReadOnlyList<FieldContract> Fields { get; init; } = [];
     /// <summary>When set, a call to this method is not lifted. The reason names the missing ABI fact.</summary>
@@ -146,6 +154,8 @@ public sealed class RecoveryRequest
     public IReadOnlyDictionary<ulong, MethodContract>? CallTargets { get; init; }
     public CodeSpace? Space { get; init; }
     public IReadOnlyDictionary<string, IReadOnlyList<FieldContract>>? TypeFields { get; init; }
+    public IReadOnlyDictionary<int, IReadOnlyList<FieldContract>>? TypeFieldsById { get; init; }
+    public IReadOnlyDictionary<int, string>? LayoutNotes { get; init; }
     public IReadOnlyDictionary<ulong, RuntimeHelper>? RuntimeHelpers { get; init; }
     public AnalysisBudget Budget { get; init; } = AnalysisBudget.Default;
     public CancellationToken CancellationToken { get; init; }

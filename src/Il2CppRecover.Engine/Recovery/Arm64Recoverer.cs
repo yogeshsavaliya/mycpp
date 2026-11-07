@@ -880,12 +880,13 @@ public static class Arm64Recoverer
 
         var calleeType = string.IsNullOrEmpty(callee.Namespace) ? callee.DeclaringType : callee.Namespace + "." + callee.DeclaringType;
         var selfType = string.IsNullOrEmpty(request.Contract.Namespace) ? request.Contract.DeclaringType : request.Contract.Namespace + "." + request.Contract.DeclaringType;
+        var sameType = TypeIdentity.Same(callee.DeclaringTypeId, calleeType, request.Contract.DeclaringTypeId, selfType);
         var call = new CallExpr(callee.Name, args, callee.ReturnType)
         {
             Receiver = callee.IsStatic ? null : receiverExpr,
             StaticType = callee.IsStatic ? calleeType : null,
             Target = target,
-            BaseCall = receiverExpr is ThisExpr && (callee.IsVirtual || callee.IsAbstract) && calleeType != selfType
+            BaseCall = receiverExpr is ThisExpr && (callee.IsVirtual || callee.IsAbstract) && !sameType
         };
         state.Clear();
         state.FlagsValid = false;

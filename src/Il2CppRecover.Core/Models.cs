@@ -226,6 +226,7 @@ public sealed class RecoveryCounts
     public int NotAnalyzed { get; init; }
     public int InternalErrors { get; init; }
     public int SharedNativeAddresses { get; init; }
+    public int SameNameTypeGroups { get; init; }
     public int CompilationChecked { get; init; }
     public int BehaviourCheckedOnFixtures { get; init; }
     public required string Denominator { get; init; }
