@@ -5,6 +5,7 @@ export function SettingsPage({ current, onChange }: { current: Settings; onChang
   const [theme, setTheme] = useState(current.theme);
   const [timeoutSeconds, setTimeoutSeconds] = useState(current.timeoutSeconds);
   const [defaultAbi, setDefaultAbi] = useState(current.defaultAbi);
+  const [bodyScope, setBodyScope] = useState(current.bodyScope || "full");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -12,7 +13,7 @@ export function SettingsPage({ current, onChange }: { current: Settings; onChang
     setError("");
     const saved = await api<Settings>("/api/settings", {
       method: "PUT",
-      body: JSON.stringify({ theme, timeoutSeconds, defaultAbi })
+      body: JSON.stringify({ theme, timeoutSeconds, defaultAbi, bodyScope })
     });
     document.documentElement.dataset.theme = saved.theme;
     onChange(saved);
@@ -44,6 +45,14 @@ export function SettingsPage({ current, onChange }: { current: Settings; onChang
           <input type="text" value={defaultAbi} onChange={(event) => setDefaultAbi(event.target.value)} />
         </label>
         <p className="muted">The recovery lifter reads little-endian ARM64. Another ABI can be inspected, and its methods stay unrecovered.</p>
+        <label>
+          <span>Body analysis</span>
+          <select value={bodyScope} onChange={(event) => setBodyScope(event.target.value)}>
+            <option value="full">Full analysis</option>
+            <option value="gameplay">Gameplay first</option>
+          </select>
+        </label>
+        <p className="muted">Gameplay first still reads every assembly and keeps call targets. It lifts gameplay and third-party bodies, and it leaves framework bodies unanalyzed instead of counting them as recovered.</p>
         <button className="btn" onClick={() => save().catch((reason: Error) => setError(reason.message))}>Save settings</button>
         {message && <p>{message}</p>}
         {error && <p className="error">{error}</p>}

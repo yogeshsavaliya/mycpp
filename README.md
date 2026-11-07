@@ -10,12 +10,12 @@ This is an analysis view. It does not reconstruct a Unity Editor project, scenes
 - Detects Mono versus IL2CPP, ELF architecture, metadata magic `0xFAB11BAF`, and a Unity version string when one is present. A supplied `--unity-version` does not replace a different string read from the file.
 - Parses metadata tables for header versions LibCpp2IL accepts when a Unity version string selects a known layout. Header 24 and 27 without a detected version are reported and not guessed.
 - Locates method pointers with pinned LibCpp2IL only when that loader finds code and metadata registration. The Cpp2IL `dll_il_recovery` writer is not called. It emits `ldnull` / `throw` stubs, which are not recovered method logic.
-- Lifts hand-checked ARM64 shapes: constant returns, integer add/sub/mul/and/orr/eor, signed and unsigned compares, if/else returns, one while-loop shape, direct calls with a supplied target, and field accesses with a supplied offset or absolute address.
+- Lifts acyclic ARM64 methods when recursive descent proves the control flow is closed: integer and scalar floating-point arithmetic, compares and selects, if/else merges, field access by metadata offset, direct calls, tail calls, direct thunks, and a null-check that ends in an identified noreturn raise. A body is written only for that closed lift. Anything else stays a throwing placeholder. See `docs/RECOVERY_AUDIT.md`.
 - Exports JSON reports, address maps, diagnostics, and C#. Unrecovered methods are throwing placeholders marked `IL2CPP_RECOVER_UNRECOVERED` and are not counted as recovered bodies.
 
 ## What it does not do
 
-- It does not recover arbitrary IL2CPP method bodies, generics, floating point, switches, exceptions, or delegates.
+- It does not recover arbitrary IL2CPP method bodies. Loops other than one legacy while shape, switches, virtual and interface calls, generics, structs such as `Vector3`, static fields, strings, arrays, allocation, delegates, and coroutines stay unrecovered.
 - It does not claim a Unity 2022.3.62f3 player was built or recovered here. Unity Editor is not installed in the environment that produced this tree. See `fixtures/Unity2022.3.62f3/BUILD.md`.
 - Compilation of emitted C# is not evidence that the C# matches the original game.
 

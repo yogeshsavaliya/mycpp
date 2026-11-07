@@ -6,18 +6,27 @@ namespace Il2CppRecover.Tests.Helpers;
 
 public static class RoslynRunner
 {
+    public static Assembly Compile(string source, string assemblyName = "RecoveredFixture")
+    {
+        var references = References();
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(source)],
+            references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary).WithOptimizationLevel(OptimizationLevel.Release));
+        using var pe = new MemoryStream();
+        var emit = compilation.Emit(pe);
+        if (!emit.Success)
+        {
+            var errors = string.Join(Environment.NewLine, emit.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+            throw new InvalidOperationException("Recovered C# did not compile:" + Environment.NewLine + errors + Environment.NewLine + source);
+        }
+        return Assembly.Load(pe.ToArray());
+    }
+
     public static object? Invoke(string source, string typeName, string methodName, object? instance, params object?[] arguments)
     {
-        var references = ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Where(path =>
-            {
-                var name = Path.GetFileName(path);
-                return name is "System.Runtime.dll" or "System.Private.CoreLib.dll" or "System.Console.dll" or "netstandard.dll";
-            })
-            .Select(path => MetadataReference.CreateFromFile(path))
-            .Cast<MetadataReference>()
-            .ToList();
+        var references = References();
         var tree = CSharpSyntaxTree.ParseText(source);
         var compilation = CSharpCompilation.Create(
             "RecoveredFixture",
@@ -36,4 +45,16 @@ public static class RoslynRunner
         var method = type.GetMethod(methodName) ?? throw new InvalidOperationException("Missing method " + methodName);
         return method.Invoke(instance, arguments);
     }
+
+    private static List<MetadataReference> References() =>
+        ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Where(path =>
+            {
+                var name = Path.GetFileName(path);
+                return name is "System.Runtime.dll" or "System.Private.CoreLib.dll" or "System.Console.dll" or "netstandard.dll";
+            })
+            .Select(path => MetadataReference.CreateFromFile(path))
+            .Cast<MetadataReference>()
+            .ToList();
 }

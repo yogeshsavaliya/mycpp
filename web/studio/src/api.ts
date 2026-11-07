@@ -49,6 +49,7 @@ export type Job = {
   methodDone: number | null;
   methodTotal: number | null;
   progressKnown: boolean;
+  bodyProgress: boolean;
 };
 
 export type MethodSummary = {
@@ -87,6 +88,7 @@ export type Settings = {
   theme: string;
   timeoutSeconds: number;
   defaultAbi: string;
+  bodyScope: string;
   dataDirectory: string;
   bindUrl: string | null;
 };

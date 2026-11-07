@@ -123,3 +123,25 @@ Result: engine tests Passed 54, web tests Passed 7.
 ## Next implementation step
 
 Build the fixture in `fixtures/Unity2022.3.62f3` with Unity 2022.3.62f3, Android ARM64, IL2CPP, and keep `global-metadata.dat` plus `libil2cpp.so`. Point `analyze` at that APK. For one small method, record the native address LibCpp2IL returns, the file offset, and the bytes. Lift only if those bytes match a supported shape; otherwise add the missing instruction pattern with a new regression test whose expected result comes from the fixture source, and leave the method `Unsupported` until that test exists.
+
+## 2026-11-06 17:03 IST — structured lifter, measured on a clang fixture
+
+The 0.3.0 pipeline passed `NextMethodAddressOnly` for every APK method and then demoted every successful lift of that slice to a placeholder. Tail calls and single-instruction thunks were rejected, and a null-check cold block that ends in a noreturn call was not a closed function. Those paths are now handled by `FunctionDiscovery` and `StructuredLifter`. A body is `RecoveredUnvalidated` only when control flow is closed.
+
+`fixtures/Il2CppStyleArm64` was compiled here with clang 18.1.3, target `aarch64-linux-gnu`, and checked against Unicorn 2.1.4. All 11 methods recovered. All 77 vectors matched the native return, fields, and exception kind. SHA-256 of `libfixture.so` is `978fbde755eb5522b3d992cc38468f454106d3ac32c1210c3bed92d6576fc3c3`. This fixture is hand-written C++ in an IL2CPP calling shape. It is not Unity output and not a game.
+
+`dotnet test Il2CppRecover.sln` on SDK 9.0.320 / net9.0: Il2CppRecover.Tests passed 69, Il2CppRecover.Web.Tests passed 7.
+
+The user's APK was not on this machine. The only real Unity IL2CPP binary here is the Cpp2IL sample for 2022.3.35f1, an x64 PE `GameAssembly.dll`. Packaged with its `global-metadata.dat` and `globalgamemanagers`, `analyze` read Unity `2022.3.35f1` from `globalgamemanagers+0x30`, header 31, layout 31.1, and 12,409 methods. The native file is not an ELF, so the loader was not run and `FullyRecoveredUniqueBodies` is 0. No result is claimed for BodypartController, BoosterButtonController, or CameraShaker.
+
+## 2026-11-06 — analysis stall diagnostics
+
+The Studio screenshot shows job `snakewarzio5` Failed after 8 seconds. The red box is the first progress lines through `Methods 50/30358`. The progress pane says `Methods inspected: 1350 of 30358`. That APK is not in this environment. The only APK larger than a test fixture is `/tmp/x64-unity.apk` (SHA-256 `df9c510d00fdf6a69137acab2d94eb52e4e60fdfcb6926ca8cbeb671799dd0c8`), an x64 `libil2cpp.so`. It is not the ARM64 game in the screenshot.
+
+`Methods X/Y` is written in `AnalysisPipeline.BuildMethods` before the body of method X is lifted, and only when X is a multiple of 50. X is the number of loop iterations that have started, not the number of methods recovered, and it is not helper-pass progress. The old failure text kept the first eight stderr lines, so a later exception was replaced by the opening log. The Jobs page showed that method fraction for every stage that had a total.
+
+Measured on the lifter before the control-flow change, with `IL2CPP_RECOVER_TIME_LIFT=1`: an 8000-block linear chain spent about 835 ms and about 784 MB of GC allocations in postdominators; a 16000-block chain spent about 1034 ms and retained about 636 MB. Three hundred sequential diamonds took 9.8 s, and four hundred diamonds were still at 100% CPU after 10 minutes (RSS about 326 MB) until the process was killed. The cost was `ComputePostDominators` copying ancestor chains, then `Cleanup.Inline` recounting every expression for every temporary.
+
+After the change, the same bench on the shipped lifter reports: 300 diamonds 253 ms and about 38 MB; 80 diamonds 41 ms; an 8000-block chain (16001 instructions, under the 16384 discovery cap) 78 ms and about 28 MB. A 16000-block chain stops at the existing discovery cap (`Discovery stopped after 16384 instructions`) in 3 ms and is not structured. `dotnet test` on SDK 9.0.320 / net9.0: engine tests Passed 78, web tests Passed 10.
+
+The same x64 APK was analyzed in process. Inventory selected `x86_64`, the native loader was skipped, and the run wrote `analysis-trace.jsonl` with build `0.4.0+fa34bf52e706211009348e12542a3f2991abbed6`, pid, and SHA-256 `df9c510d00fdf6a69137acab2d94eb52e4e60fdfcb6926ca8cbeb671799dd0c8`. Counts: 12409 methods, `fullyRecoveredUniqueBodies` 0, `metadataOnly` 12409, `analysisBudgetExceeded` 0, `timedOut` 0. Exit code 3 because the requested ARM64 ABI was not in the package. Studio showed that diagnostic, not the opening progress lines. The job log keeps the `Identity` line. No `BodypartController` or `BoosterButtonController` result is claimed.

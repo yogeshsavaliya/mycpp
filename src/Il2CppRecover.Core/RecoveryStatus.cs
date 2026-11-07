@@ -14,7 +14,13 @@ public enum MethodRecoveryStatus
     CompilationChecked,
     BehaviourCheckedOnFixtures,
     Unsupported,
-    Failed
+    Failed,
+    /// <summary>A configured instruction, block, or structuring budget stopped this method. It is not a recovered body.</summary>
+    AnalysisBudgetExceeded,
+    /// <summary>The per-method deadline elapsed. It is not a recovered body.</summary>
+    TimedOut,
+    /// <summary>Body analysis was not run for this method. Metadata is still recorded.</summary>
+    NotAnalyzed
 }
 
 public enum ScriptingBackend
@@ -45,7 +51,12 @@ public enum BoundaryEvidence
     CallerSuppliedSlice,
     EndsWithReturn,
     NextMethodAddressOnly,
-    Uncertain
+    Uncertain,
+    /// <summary>
+    /// Recursive descent from the entry reached only RET, a tail call to a known method entry,
+    /// or a call with noreturn evidence, and never crossed the next known entry.
+    /// </summary>
+    ControlFlowClosed
 }
 
 public enum MethodKind

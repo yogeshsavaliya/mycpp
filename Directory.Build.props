@@ -8,7 +8,16 @@
     <Deterministic>true</Deterministic>
     <Company>Il2CppRecover</Company>
     <Product>Il2CppRecover</Product>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <Authors>Il2CppRecover contributors</Authors>
   </PropertyGroup>
+  <Target Name="Il2CppRecoverEmbedGitCommit" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo" Condition="'$(SourceRevisionId)' == ''">
+    <Exec Command="git rev-parse HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low" WorkingDirectory="$(MSBuildThisFileDirectory)">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_Il2CppRecoverGitHead" />
+      <Output TaskParameter="ExitCode" PropertyName="_Il2CppRecoverGitExit" />
+    </Exec>
+    <PropertyGroup Condition="'$(_Il2CppRecoverGitExit)' == '0' And $(_Il2CppRecoverGitHead.Length) == 40">
+      <SourceRevisionId>$(_Il2CppRecoverGitHead)</SourceRevisionId>
+    </PropertyGroup>
+  </Target>
 </Project>

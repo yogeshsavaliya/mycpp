@@ -5,6 +5,9 @@
     <Description>Local web workbench for Il2CppRecover.</Description>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Il2CppRecover.Web.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Il2CppRecover.Engine\Il2CppRecover.Engine.csproj" />
     <ProjectReference Include="..\Il2CppRecover.Cli\Il2CppRecover.Cli.csproj" />
   </ItemGroup>
